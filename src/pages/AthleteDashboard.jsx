@@ -61,6 +61,19 @@ const AthleteDashboard = () => {
   const [recordedExerciseProofs, setRecordedExerciseProofs] = useState({});
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
 
+  // Skip Exercise Modal & Reason Selection State
+  const [skipModalOpen, setSkipModalOpen] = useState(false);
+  const [skipReasonChoice, setSkipReasonChoice] = useState('high_pain');
+  const [skipCustomNotes, setSkipCustomNotes] = useState('');
+
+  const SKIP_REASONS = [
+    { id: 'high_pain', label: '🔴 High Pain / Discomfort in Joint' },
+    { id: 'fatigue', label: '⚡ Severe Muscle Fatigue' },
+    { id: 'no_equipment', label: '🚫 Lack of Required Equipment / Space' },
+    { id: 'physio_advised', label: '⚠️ Doctor / Physio Advised Pause' },
+    { id: 'other', label: '📝 Other Reason (Specify below)' }
+  ];
+
   const prescribedExercises = workoutPlan?.exercises?.map((ex, idx) => ({
     id: ex.id || (idx === 0 ? 'squat' : idx === 1 ? 'bicep_curl' : 'overhead_press'),
     name: ex.name,
@@ -85,7 +98,10 @@ const AthleteDashboard = () => {
     const exId = sessionData.exerciseId || activeEx?.id || 'squat';
     const updatedProofs = {
       ...recordedExerciseProofs,
-      [exId]: sessionData
+      [exId]: {
+        ...sessionData,
+        status: 'recorded'
+      }
     };
     setRecordedExerciseProofs(updatedProofs);
     setRecordedVideoUrl(sessionData.recordedVideoUrl);
@@ -99,6 +115,58 @@ const AthleteDashboard = () => {
       alert(`✓ Exercise ${activeExerciseIndex + 1}/${prescribedExercises.length} (${sessionData.exerciseName || activeEx.name}) video recorded!\n\nUnlocked Next Exercise: ${prescribedExercises[nextIndex].name}. Please record or upload video for Exercise ${nextIndex + 1}.`);
     } else {
       alert(`🎉 All ${prescribedExercises.length} prescribed exercise videos recorded!\n\nYou can now push the complete workout package and telemetry directly to your Doctor.`);
+    }
+  };
+
+  // Open Skip Modal for current exercise
+  const handleOpenSkipModal = () => {
+    setSkipReasonChoice('high_pain');
+    setSkipCustomNotes('');
+    setSkipModalOpen(true);
+  };
+
+  // Confirm skipping current exercise with reason choice
+  const handleConfirmSkipExercise = () => {
+    const activeEx = prescribedExercises[activeExerciseIndex] || prescribedExercises[0];
+    const exId = activeEx?.id || 'squat';
+
+    const chosenOption = SKIP_REASONS.find(r => r.id === skipReasonChoice);
+    const reasonLabel = skipReasonChoice === 'other' && skipCustomNotes
+      ? `Other: ${skipCustomNotes}`
+      : chosenOption?.label || skipReasonChoice;
+
+    const skipSessionData = {
+      exerciseId: exId,
+      exerciseName: activeEx.name,
+      status: 'skipped',
+      skipReasonId: skipReasonChoice,
+      skipReasonLabel: reasonLabel,
+      skipNotes: skipCustomNotes,
+      recordedVideoUrl: null,
+      romDegrees: 0,
+      symmetryPercent: 0,
+      valgusAngle: 0,
+      repsCompleted: 0,
+      formScore: 0,
+      loggedAt: new Date().toISOString()
+    };
+
+    const updatedProofs = {
+      ...recordedExerciseProofs,
+      [exId]: skipSessionData
+    };
+    setRecordedExerciseProofs(updatedProofs);
+    setSkipModalOpen(false);
+
+    // Uncheck in completed exercises list
+    setCompletedExercises(prev => prev.map(ex => (ex.id === exId || ex.name === activeEx.name) ? { ...ex, completed: false } : ex));
+
+    const nextIndex = activeExerciseIndex + 1;
+    if (nextIndex < prescribedExercises.length) {
+      setActiveExerciseIndex(nextIndex);
+      alert(`⚠️ Skipped Exercise ${activeExerciseIndex + 1}/${prescribedExercises.length} (${activeEx.name})\nReason: ${reasonLabel}\n\nUnlocked Next Exercise: ${prescribedExercises[nextIndex].name}.`);
+    } else {
+      alert(`🎉 All ${prescribedExercises.length} prescribed exercises addressed (recorded or skipped with logged reasons)!\n\nYou can now push the complete workout package and telemetry directly to your Doctor.`);
     }
   };
 
@@ -630,27 +698,41 @@ const AthleteDashboard = () => {
                     Exercise {activeExerciseIndex + 1} of {totalPrescribedCount}: {prescribedExercises[activeExerciseIndex]?.name}
                   </h3>
                 </div>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    padding: '0.35rem 0.85rem',
-                    borderRadius: '999px',
-                    background: isAllExercisesRecorded ? '#dcfce7' : '#fff7ed',
-                    color: isAllExercisesRecorded ? '#15803d' : '#fc4c02',
-                    border: isAllExercisesRecorded ? '1px solid #86efac' : '1px solid #fed7aa'
-                  }}
-                >
-                  {recordedCount} / {totalPrescribedCount} EXERCISE VIDEOS LOGGED
-                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenSkipModal}
+                    className="btn-outline text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1.5"
+                    style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', fontWeight: 700 }}
+                  >
+                    <span>⚠️ Skip Exercise</span>
+                  </button>
+
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '999px',
+                      background: isAllExercisesRecorded ? '#dcfce7' : '#fff7ed',
+                      color: isAllExercisesRecorded ? '#15803d' : '#fc4c02',
+                      border: isAllExercisesRecorded ? '1px solid #86efac' : '1px solid #fed7aa'
+                    }}
+                  >
+                    {recordedCount} / {totalPrescribedCount} EXERCISES LOGGED
+                  </span>
+                </div>
               </div>
 
               {/* Stepper pills */}
               <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                 {prescribedExercises.map((ex, idx) => {
-                  const isRecorded = !!recordedExerciseProofs[ex.id];
+                  const proof = recordedExerciseProofs[ex.id];
+                  const isRecorded = proof?.status === 'recorded';
+                  const isSkipped = proof?.status === 'skipped';
                   const isActive = idx === activeExerciseIndex;
-                  const isLocked = !isRecorded && idx > activeExerciseIndex && !recordedExerciseProofs[prescribedExercises[idx - 1]?.id];
+                  const isLocked = !proof && idx > activeExerciseIndex && !recordedExerciseProofs[prescribedExercises[idx - 1]?.id];
 
                   return (
                     <button
@@ -665,9 +747,9 @@ const AthleteDashboard = () => {
                         borderRadius: '10px',
                         fontSize: '0.8rem',
                         fontWeight: 700,
-                        border: isActive ? '1px solid #fc4c02' : isRecorded ? '1px solid #22c55e' : '1px solid #cbd5e1',
-                        background: isActive ? '#fff7ed' : isRecorded ? '#f0fdf4' : isLocked ? '#f8fafc' : '#ffffff',
-                        color: isActive ? '#fc4c02' : isRecorded ? '#15803d' : isLocked ? '#94a3b8' : '#0f172a',
+                        border: isActive ? '1px solid #fc4c02' : isRecorded ? '1px solid #22c55e' : isSkipped ? '1px solid #f59e0b' : '1px solid #cbd5e1',
+                        background: isActive ? '#fff7ed' : isRecorded ? '#f0fdf4' : isSkipped ? '#fffbeb' : isLocked ? '#f8fafc' : '#ffffff',
+                        color: isActive ? '#fc4c02' : isRecorded ? '#15803d' : isSkipped ? '#b45309' : isLocked ? '#94a3b8' : '#0f172a',
                         cursor: isLocked ? 'not-allowed' : 'pointer',
                         opacity: isLocked ? 0.6 : 1,
                         flexShrink: 0
@@ -675,6 +757,8 @@ const AthleteDashboard = () => {
                     >
                       {isRecorded ? (
                         <CheckCircle2 size={15} color="#22c55e" />
+                      ) : isSkipped ? (
+                        <span style={{ fontSize: '0.85rem' }}>⚠️</span>
                       ) : isLocked ? (
                         <span style={{ fontSize: '0.85rem' }}>🔒</span>
                       ) : (
@@ -684,6 +768,11 @@ const AthleteDashboard = () => {
                       {isRecorded && (
                         <span style={{ fontSize: '0.65rem', fontWeight: 900, background: '#22c55e', color: '#fff', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
                           Saved ✓
+                        </span>
+                      )}
+                      {isSkipped && (
+                        <span style={{ fontSize: '0.65rem', fontWeight: 900, background: '#f59e0b', color: '#fff', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+                          Skipped
                         </span>
                       )}
                     </button>
@@ -700,6 +789,7 @@ const AthleteDashboard = () => {
               totalExercises={totalPrescribedCount}
               onSaveExerciseSession={handleSaveExerciseSession}
               onCompleteSession={handleSaveExerciseSession}
+              onSkipExercise={handleOpenSkipModal}
             />
 
             <div className="glass-card" style={{ padding: '2rem' }}>
@@ -714,43 +804,63 @@ const AthleteDashboard = () => {
                   <h4 className="text-sm font-bold text-main mb-3">Prescribed Exercise Video Status Checklist</h4>
                   <div className="flex flex-col gap-2">
                     {prescribedExercises.map((ex, index) => {
-                      const isRecorded = !!recordedExerciseProofs[ex.id];
+                      const proof = recordedExerciseProofs[ex.id];
+                      const isRecorded = proof?.status === 'recorded';
+                      const isSkipped = proof?.status === 'skipped';
+
                       return (
                         <div
                           key={ex.id || index}
-                          className="flex items-center justify-between p-3.5"
+                          className="flex items-center justify-between p-3.5 flex-wrap gap-2"
                           style={{
-                            background: isRecorded ? '#f0fdf4' : '#fafafa',
+                            background: isRecorded ? '#f0fdf4' : isSkipped ? '#fffbeb' : '#fafafa',
                             borderRadius: 'var(--radius-md)',
-                            border: isRecorded ? '1px solid #bbf7d0' : '1px solid #f1f5f9'
+                            border: isRecorded ? '1px solid #bbf7d0' : isSkipped ? '1px solid #fde68a' : '1px solid #f1f5f9'
                           }}
                         >
                           <div className="flex items-center gap-3">
                             <input
                               type="checkbox"
                               readOnly
-                              checked={isRecorded}
-                              style={{ width: '18px', height: '18px', accentColor: '#22c55e' }}
+                              checked={isRecorded || isSkipped}
+                              style={{ width: '18px', height: '18px', accentColor: isSkipped ? '#f59e0b' : '#22c55e' }}
                             />
                             <div>
                               <span className="text-sm font-bold text-main block">{ex.name} ({ex.sets} sets × {ex.reps} reps)</span>
                               <span className="text-xs text-muted">Target: {ex.load} • Tempo: {ex.tempo}</span>
                             </div>
                           </div>
-                          {isRecorded ? (
-                            <span className="text-xs font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full border border-green-300">
-                              Video Recorded ✓
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setActiveExerciseIndex(index)}
-                              className="btn-outline text-xs"
-                              style={{ padding: '0.35rem 0.75rem' }}
-                            >
-                              {index === activeExerciseIndex ? "Recording Now..." : "Select to Record"}
-                            </button>
-                          )}
+
+                          <div className="flex items-center gap-2">
+                            {isRecorded ? (
+                              <span className="text-xs font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full border border-green-300">
+                                Video Recorded ✓
+                              </span>
+                            ) : isSkipped ? (
+                              <span className="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full border border-amber-300 flex items-center gap-1">
+                                ⚠️ Skipped: {proof.skipReasonLabel}
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSkipModal()}
+                                  className="btn-outline text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100"
+                                  style={{ padding: '0.35rem 0.65rem' }}
+                                >
+                                  Skip
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveExerciseIndex(index)}
+                                  className="btn-outline text-xs"
+                                  style={{ padding: '0.35rem 0.75rem' }}
+                                >
+                                  {index === activeExerciseIndex ? "Recording Now..." : "Select to Record"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -823,11 +933,117 @@ const AthleteDashboard = () => {
                   {isSubmitting
                     ? "Processing AI Video Endpoint & Submitting..."
                     : isAllExercisesRecorded
-                    ? `✓ Push All ${totalPrescribedCount} Exercise Videos & Telemetry to Doctor →`
-                    : `🔒 Push Disabled — Record Videos for All ${totalPrescribedCount} Exercises (${recordedCount}/${totalPrescribedCount} Done)`}
+                    ? `✓ Push All ${totalPrescribedCount} Exercise Logs & Telemetry to Doctor →`
+                    : `🔒 Push Disabled — Log or Skip All ${totalPrescribedCount} Exercises (${recordedCount}/${totalPrescribedCount} Done)`}
                 </button>
               </form>
             </div>
+
+            {/* INTERACTIVE SKIP EXERCISE REASON SELECTION MODAL */}
+            {skipModalOpen && (
+              <div
+                style={{
+                  position: 'fixed',
+                  top: 0, left: 0, right: 0, bottom: 0,
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  backdropFilter: 'blur(6px)',
+                  zIndex: 400,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '1.25rem'
+                }}
+              >
+                <div
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: '20px',
+                    maxWidth: '520px',
+                    width: '100%',
+                    padding: '1.75rem',
+                    boxShadow: '0 20px 40px -10px rgba(0,0,0,0.3)',
+                    border: '1px solid #cbd5e1'
+                  }}
+                >
+                  <div className="flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
+                    <div>
+                      <span className="text-xs font-extrabold text-amber-600 uppercase tracking-wider block mb-0.5">
+                        EXERCISE SKIP QUESTIONNAIRE
+                      </span>
+                      <h3 className="text-lg font-bold text-main">
+                        Why are you skipping {prescribedExercises[activeExerciseIndex]?.name}?
+                      </h3>
+                    </div>
+                    <button
+                      onClick={() => setSkipModalOpen(false)}
+                      style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-muted mb-4">
+                    Please select a reason below. This clinical feedback is logged and sent directly to your Physio & Doctor so they can adjust your loading protocol.
+                  </p>
+
+                  <div className="flex flex-col gap-2.5 mb-5">
+                    {SKIP_REASONS.map((opt) => (
+                      <label
+                        key={opt.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all"
+                        style={{
+                          background: skipReasonChoice === opt.id ? '#fff7ed' : '#f8fafc',
+                          borderColor: skipReasonChoice === opt.id ? '#fc4c02' : '#e2e8f0',
+                          fontWeight: skipReasonChoice === opt.id ? 700 : 500
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="skipReason"
+                          value={opt.id}
+                          checked={skipReasonChoice === opt.id}
+                          onChange={(e) => setSkipReasonChoice(e.target.value)}
+                          style={{ accentColor: '#fc4c02', width: '16px', height: '16px' }}
+                        />
+                        <span className="text-sm text-main">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {skipReasonChoice === 'other' && (
+                    <div className="mb-5">
+                      <label className="text-xs font-bold text-main mb-1 block">Specify Other Reason / Observation</label>
+                      <textarea
+                        rows={2}
+                        value={skipCustomNotes}
+                        onChange={(e) => setSkipCustomNotes(e.target.value)}
+                        placeholder="e.g. Sharp pain at 90° knee bend..."
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setSkipModalOpen(false)}
+                      className="btn-outline"
+                      style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmSkipExercise}
+                      className="btn-primary"
+                      style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem', background: '#fc4c02' }}
+                    >
+                      Confirm Skip & Move to Next Exercise →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

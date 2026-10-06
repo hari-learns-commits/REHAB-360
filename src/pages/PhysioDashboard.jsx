@@ -391,32 +391,118 @@ const PhysioDashboard = () => {
           </div>
         )}
 
-        {/* TAB 3: VIDEO FORM ANALYSIS */}
+        {/* TAB 3: VIDEO FORM ANALYSIS & ATHLETE EXERCISE LOG BREAKDOWN */}
         {activeTab === 'video_analysis' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 glass-card" style={{ padding: '2.5rem' }}>
-              <h2 className="text-2xl font-bold text-main mb-2">Dedicated Video Form Analysis</h2>
-              <p className="text-base text-muted mb-6">Slow-motion playback & telemetry</p>
+            <div className="lg:col-span-2 flex flex-col gap-6">
+              <div className="glass-card" style={{ padding: '2.5rem' }}>
+                <h2 className="text-2xl font-bold text-main mb-2">Dedicated Video Form Analysis & Telemetry</h2>
+                <p className="text-base text-muted mb-6">Slow-motion playback & synchronous joint telemetry</p>
 
-              {selectedLog ? (
-                <SynchronizedVideoTelemetryPlayer
-                  videoUrl={selectedLog.videoProofUrl}
-                  telemetryData={selectedLog.telemetryData || []}
-                  sessionTitle={`Workout Proof (${selectedLog.readinessBadgeText || 'Live Audit'})`}
-                  athleteName={selectedLog.athleteName || 'Alex Morgan'}
-                  date={selectedLog.timestamp ? new Date(selectedLog.timestamp).toLocaleDateString() : new Date().toLocaleDateString()}
-                />
-              ) : (
-                <div className="text-center p-8 text-muted">No athlete video proof uploaded yet.</div>
+                {selectedLog ? (
+                  <SynchronizedVideoTelemetryPlayer
+                    videoUrl={selectedLog.videoProofUrl}
+                    telemetryData={selectedLog.telemetryData || []}
+                    sessionTitle={`Workout Proof (${selectedLog.readinessBadgeText || 'Live Audit'})`}
+                    athleteName={selectedLog.athleteName || 'Alex Morgan'}
+                    date={selectedLog.timestamp ? new Date(selectedLog.timestamp).toLocaleDateString() : new Date().toLocaleDateString()}
+                  />
+                ) : (
+                  <div className="text-center p-8 text-muted">No athlete video proof uploaded yet.</div>
+                )}
+              </div>
+
+              {/* ATHLETE PUSHED EXERCISE BREAKDOWN CARD (VIDEO PROOFS & SKIP REASONS) */}
+              {selectedLog && (
+                <div className="glass-card" style={{ padding: '2rem' }}>
+                  <div className="flex justify-between items-center mb-4 flex-wrap gap-2 border-b border-color pb-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-main flex items-center gap-2">
+                        <Sparkles size={18} color="var(--primary)" /> Pushed Session Exercise Breakdown
+                      </h3>
+                      <p className="text-xs text-muted">Recorded video proofs and logged skip reasons submitted by Alex Morgan</p>
+                    </div>
+                    <span className="text-xs font-bold text-primary bg-orange-50 px-3 py-1 rounded-full border border-orange-200">
+                      Session ID: {selectedLog.sessionId || 'SESS-9921'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    {selectedLog.recordedExerciseProofs && Object.keys(selectedLog.recordedExerciseProofs).length > 0 ? (
+                      Object.values(selectedLog.recordedExerciseProofs).map((exProof, idx) => (
+                        <div
+                          key={exProof.exerciseId || idx}
+                          className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+                          style={{
+                            background: exProof.status === 'skipped' ? '#fffbeb' : '#fafafa',
+                            borderRadius: 'var(--radius-md)',
+                            border: exProof.status === 'skipped' ? '1px solid #fde68a' : '1px solid #e2e8f0'
+                          }}
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-primary text-sm">#{idx + 1}</span>
+                              <h4 className="font-bold text-main text-base">{exProof.exerciseName}</h4>
+                            </div>
+
+                            {exProof.status === 'skipped' ? (
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded border border-amber-300">
+                                  ⚠️ Skipped by Athlete
+                                </span>
+                                <span className="text-xs text-amber-900 font-semibold">
+                                  Reason: {exProof.skipReasonLabel}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-muted mt-1 flex flex-wrap gap-3">
+                                <span>ROM: <strong className="text-main">{exProof.romDegrees}°</strong></span>
+                                <span>Symmetry: <strong className="text-main">{exProof.symmetryPercent}%</strong></span>
+                                <span>Valgus: <strong className="text-main">{exProof.valgusAngle}°</strong></span>
+                                <span>Reps: <strong className="text-main">{exProof.repsCompleted}</strong></span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            {exProof.status === 'skipped' ? (
+                              <span className="text-xs text-amber-700 italic font-semibold">
+                                Action required: Review athlete loading capacity
+                              </span>
+                            ) : exProof.recordedVideoUrl ? (
+                              <a
+                                href={exProof.recordedVideoUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn-outline text-xs flex items-center gap-1.5"
+                                style={{ padding: '0.4rem 0.85rem' }}
+                              >
+                                <Video size={14} color="var(--primary)" /> View Exercise Video →
+                              </a>
+                            ) : (
+                              <span className="text-xs text-green-700 font-bold bg-green-50 px-2.5 py-1 rounded border border-green-200">
+                                Video Logged ✓
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-4 text-xs text-muted bg-slate-50 rounded-lg">
+                        Prescribed Exercises: <strong>Bodyweight Squat, Bicep Curl, Overhead Press</strong> (Pushed telemetry & video proofs synced).
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
             <div className="glass-card" style={{ padding: '2.5rem', height: 'fit-content' }}>
-              <h3 className="text-lg font-bold text-main mb-6">Video Markups & Notes</h3>
+              <h3 className="text-lg font-bold text-main mb-6">Video Markups & Clinical Notes</h3>
               <form onSubmit={handleAddAnnotation} className="flex flex-col gap-4 mb-8">
                 <textarea
                   rows={3}
-                  placeholder="Leave timestamp note..."
+                  placeholder="Leave clinical observation or feedback for athlete..."
                   value={annotationNote}
                   onChange={(e) => setAnnotationNote(e.target.value)}
                   style={{ width: '100%', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
