@@ -24,12 +24,3 @@ dist-ssr
 *.sw?
 
 .vercel
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-.venv/
-env/
-.env
