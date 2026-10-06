@@ -133,6 +133,7 @@ const LiveCameraPoseTracker = ({ onCompleteSession }) => {
   // ── Camera: Start ───────────────────────────────────────────────────────
   const startCamera = async () => {
     setCameraError('');
+    setCameraActive(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
@@ -140,9 +141,8 @@ const LiveCameraPoseTracker = ({ onCompleteSession }) => {
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(e => console.warn("Video play error:", e));
       }
-      setCameraActive(true);
     } catch (err) {
       console.warn('Webcam access denied — using simulated motion tracking:', err);
       setCameraError('Webcam unavailable. Running Simulated AI Motion Tracking for demonstration.');

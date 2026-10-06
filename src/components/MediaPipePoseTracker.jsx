@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { PoseLandmarker, HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { Camera, CameraOff, Square, RefreshCw, CheckCircle2, AlertTriangle, Play, SwitchCamera, Upload, Hand, Sparkles } from 'lucide-react';
 import {
@@ -19,6 +19,7 @@ import { saveWorkoutSessionRecord } from '../services/workoutPlanService';
 const MediaPipePoseTracker = ({ onCompleteSession }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const streamRef = useRef(null);
   const poseLandmarkerRef = useRef(null);
   const handLandmarkerRef = useRef(null);
   const poseResultsRef = useRef(null);
@@ -64,11 +65,9 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
   const [valgusDeviation, setValgusDeviation] = useState(2.1);
   const [kineticSymmetry, setKineticSymmetry] = useState(94);
   const [handGripState, setHandGripState] = useState('Open Palm');
-  const [pinchDistance, setPinchDistance] = useState(0.12);
   const [repsCount, setRepsCount] = useState(0);
   const [exercisePhase, setExercisePhase] = useState('standing');
   const [safetyStatus, setSafetyStatus] = useState('safe');
-  const [compensatoryFlags, setCompensatoryFlags] = useState([]);
   const [formFeedback, setFormFeedback] = useState('Position body & hands in view to track arms, palms and fingers');
 
   // Handle Dynamic Exercise Selection
@@ -130,20 +129,31 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     return () => { isMounted = false; };
   }, [modelComplexity]);
 
+  // Guarantee Video Stream Attachment on Camera Active State Change
+  useEffect(() => {
+    if (cameraActive && streamRef.current && videoRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.play().catch(e => console.warn("Video play error:", e));
+      }
+    }
+  }, [cameraActive]);
+
   const startCamera = async () => {
     setCameraError('');
+    setCameraActive(true);
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode },
         audio: false
       });
 
+      streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
-          setCameraActive(true);
-        };
+        videoRef.current.play().catch(e => console.warn("Video play error:", e));
       }
     } catch (err) {
       console.warn("Webcam access restricted:", err);
@@ -153,9 +163,11 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
   };
 
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const tracks = videoRef.current.srcObject.getTracks();
-      tracks.forEach(track => track.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
@@ -176,9 +188,9 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     setRepsCount(0);
     recordedChunksRef.current = [];
 
-    if (videoRef.current && videoRef.current.srcObject) {
+    if (streamRef.current) {
       try {
-        const recorder = new MediaRecorder(videoRef.current.srcObject, { mimeType: 'video/webm' });
+        const recorder = new MediaRecorder(streamRef.current, { mimeType: 'video/webm' });
         recorder.ondataavailable = (e) => {
           if (e.data.size > 0) recordedChunksRef.current.push(e.data);
         };
@@ -206,12 +218,14 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     const file = e.target.files[0];
     if (file) {
       const url = URL.createObjectURL(file);
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-        videoRef.current.src = url;
-        videoRef.current.play();
-        setCameraActive(true);
-      }
+      setCameraActive(true);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+          videoRef.current.src = url;
+          videoRef.current.play();
+        }
+      }, 100);
     }
   };
 
@@ -257,7 +271,6 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
       const currentTimestampMs = performance.now();
 
       let poseLandmarksFound = false;
-      let handLandmarksFound = false;
 
       // 1. PROCESS REAL-TIME MEDIAPIPE FEED
       if (cameraActive && videoRef.current && videoRef.current.readyState >= 2 && poseLandmarkerRef.current) {
@@ -276,7 +289,6 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
               const lm = poseRes.landmarks[0];
               poseLandmarksFound = true;
 
-              // Compute Joint Angles
               const rawLeftKnee = calculateJointAngle(lm[23], lm[25], lm[27]);
               const rawRightKnee = calculateJointAngle(lm[24], lm[26], lm[28]);
               const smoothLeftKnee = applyEMAFilter(rawLeftKnee, prevLeftKneeEMARef);
@@ -301,7 +313,6 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
 
               const compRes = evaluateCompensatoryFaults(lm, smoothLeftKnee, smoothRightKnee, smoothValgus);
               setSafetyStatus(compRes.safetyStatus);
-              setCompensatoryFlags(compRes.flags);
               setFormFeedback(compRes.feedback);
 
               // Stateful Rep Tracker Process Frame
@@ -353,13 +364,9 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
 
             // Draw Hands & Finger Landmarks
             if (handRes && handRes.landmarks && handRes.landmarks.length > 0) {
-              handLandmarksFound = true;
               handRes.landmarks.forEach((handLm, hIdx) => {
                 const metrics = calculateHandMetrics(handLm);
-                if (hIdx === 0) {
-                  setHandGripState(metrics.gripState);
-                  setPinchDistance(metrics.pinchDistance);
-                }
+                if (hIdx === 0) setHandGripState(metrics.gripState);
 
                 const handColor = metrics.gripState === 'Closed Fist' ? '#ec4899' : metrics.gripState === 'Pinch Grip' ? '#eab308' : '#10b981';
                 HAND_CONNECTIONS.forEach(([i, j]) => {
@@ -532,7 +539,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
           )}
 
           {!cameraActive ? (
-            <button onClick={() => startCamera()} className="btn-primary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}>
+            <button onClick={startCamera} className="btn-primary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}>
               <Camera size={16} /> Activate Camera
             </button>
           ) : (
@@ -574,44 +581,53 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
           boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.2)'
         }}
       >
-        {!cameraActive ? (
-          <div className="flex flex-col items-center gap-3 text-center p-6 text-slate-300">
+        {/* STANDBY UI OVERLAY */}
+        {!cameraActive && (
+          <div className="flex flex-col items-center gap-3 text-center p-6 text-slate-300 z-10">
             <Hand size={48} color="#fc4c02" />
             <h4 className="text-lg font-bold text-white">MediaPipe AI Holistic Camera Standby</h4>
-            <p className="text-xs text-slate-400 max-w-md">
+            <p className="text-xs text-slate-400 max-w-md mb-2">
               Client-side computer vision engine detects 33 body pose points + 21 finger joints per hand in real-time.
             </p>
+            <button onClick={startCamera} className="btn-primary" style={{ padding: '0.65rem 1.5rem', fontSize: '0.875rem' }}>
+              <Camera size={18} /> Activate Camera
+            </button>
           </div>
-        ) : (
+        )}
+
+        {/* ALWAYS MOUNTED VIDEO TAG (PREVENTS NULL REF ON USERMEDIA) */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            display: cameraActive ? 'block' : 'none'
+          }}
+        />
+
+        <canvas
+          ref={canvasRef}
+          width={640}
+          height={420}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+            display: cameraActive ? 'block' : 'none'
+          }}
+        />
+
+        {/* LIVE TELEMETRY OVERLAY HUD */}
+        {cameraActive && (
           <>
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              autoPlay
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                transform: facingMode === 'user' ? 'scaleX(-1)' : 'none'
-              }}
-            />
-
-            <canvas
-              ref={canvasRef}
-              width={640}
-              height={420}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none'
-              }}
-            />
-
-            {/* LIVE TELEMETRY OVERLAY HUD */}
             <div
               style={{
                 position: 'absolute',
