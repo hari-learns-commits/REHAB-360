@@ -16,7 +16,14 @@ import { EXERCISE_REGISTRY } from '../data/exerciseRegistry';
 import { analyzeWorkoutSession } from '../services/geminiService';
 import { saveWorkoutSessionRecord } from '../services/workoutPlanService';
 
-const MediaPipePoseTracker = ({ onCompleteSession }) => {
+const MediaPipePoseTracker = ({
+  onCompleteSession,
+  activeExerciseId = 'squat',
+  activeExerciseName = 'Bodyweight Squat',
+  exerciseIndex = 0,
+  totalExercises = 1,
+  onSaveExerciseSession = null
+}) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -34,8 +41,18 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
   const repTelemetryLogRef = useRef([]);
 
   // Dynamic Exercise & Stateful Rep Tracker Instance
-  const [selectedExerciseId, setSelectedExerciseId] = useState('squat');
-  const repTrackerRef = useRef(new ExerciseRepTracker(EXERCISE_REGISTRY.squat));
+  const [selectedExerciseId, setSelectedExerciseId] = useState(activeExerciseId);
+  const repTrackerRef = useRef(new ExerciseRepTracker(EXERCISE_REGISTRY[activeExerciseId] || EXERCISE_REGISTRY.squat));
+
+  // Sync active exercise configuration when prop updates
+  useEffect(() => {
+    if (activeExerciseId && EXERCISE_REGISTRY[activeExerciseId]) {
+      setSelectedExerciseId(activeExerciseId);
+      repTrackerRef.current = new ExerciseRepTracker(EXERCISE_REGISTRY[activeExerciseId]);
+      setRepsCount(0);
+      repTelemetryLogRef.current = [];
+    }
+  }, [activeExerciseId]);
 
   // EMA Filter States
   const prevLeftKneeEMARef = useRef(null);
@@ -283,11 +300,21 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     let prevMinAngle = 170;
 
     const renderLoop = () => {
-      if (!canvasRef.current) return;
+      if (!canvasRef.current || !videoRef.current) return;
+      const video = videoRef.current;
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
-      const width = canvas.width;
-      const height = canvas.height;
+
+      // Dynamically sync canvas internal resolution with actual video stream/file resolution
+      if (video.videoWidth && video.videoHeight) {
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+      }
+
+      const width = canvas.width || 640;
+      const height = canvas.height || 420;
 
       ctx.clearRect(0, 0, width, height);
       const currentTimestampMs = performance.now();
@@ -295,16 +322,16 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
       let poseLandmarksFound = false;
 
       // 1. PROCESS REAL-TIME MEDIAPIPE FEED (Webcam OR Uploaded Video File)
-      if (cameraActive && videoRef.current && videoRef.current.readyState >= 2 && poseLandmarkerRef.current) {
-        if (videoRef.current.currentTime !== lastVideoTimeRef.current) {
-          lastVideoTimeRef.current = videoRef.current.currentTime;
+      if (cameraActive && video.readyState >= 2 && poseLandmarkerRef.current) {
+        if (video.currentTime !== lastVideoTimeRef.current) {
+          lastVideoTimeRef.current = video.currentTime;
           try {
-            const poseRes = poseLandmarkerRef.current.detectForVideo(videoRef.current, currentTimestampMs);
+            const poseRes = poseLandmarkerRef.current.detectForVideo(video, currentTimestampMs);
             poseResultsRef.current = poseRes;
 
             let handRes = null;
             if (handLandmarkerRef.current) {
-              handRes = handLandmarkerRef.current.detectForVideo(videoRef.current, currentTimestampMs);
+              handRes = handLandmarkerRef.current.detectForVideo(video, currentTimestampMs);
             }
 
             if (poseRes.landmarks && poseRes.landmarks.length > 0) {
@@ -353,17 +380,28 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
                 }
               }
 
-              // Draw Body Pose Skeleton
-              ctx.lineWidth = 3;
+              // COMPLETE ANATOMICAL SKELETON CONNECTOR PATHS
+              ctx.lineWidth = Math.max(3, Math.round(width / 180));
               const poseConnections = [
+                // Torso & Spine
                 [11, 12], [11, 23], [12, 24], [23, 24],
-                [11, 13], [13, 15], [12, 14], [14, 16],
-                [23, 25], [25, 27], [24, 26], [26, 28]
+                // Left Arm & Hand
+                [11, 13], [13, 15], [15, 17], [15, 19], [15, 21],
+                // Right Arm & Hand
+                [12, 14], [14, 16], [16, 18], [16, 20], [16, 22],
+                // Left Leg & Foot
+                [23, 25], [25, 27], [27, 29], [27, 31], [29, 31],
+                // Right Leg & Foot
+                [24, 26], [26, 28], [28, 30], [28, 32], [30, 32],
+                // Head & Neck
+                [0, 11], [0, 12]
               ];
 
+              const connColor = compRes.safetyStatus === 'unsafe' ? '#ef4444' : compRes.safetyStatus === 'caution' ? '#f59e0b' : '#fc4c02';
+
               poseConnections.forEach(([i, j]) => {
-                if (lm[i] && lm[j] && (lm[i].visibility || 1) > 0.4 && (lm[j].visibility || 1) > 0.4) {
-                  ctx.strokeStyle = compRes.safetyStatus === 'unsafe' ? '#ef4444' : compRes.safetyStatus === 'caution' ? '#f59e0b' : '#fc4c02';
+                if (lm[i] && lm[j] && (lm[i].visibility || 1) > 0.3 && (lm[j].visibility || 1) > 0.3) {
+                  ctx.strokeStyle = connColor;
                   ctx.beginPath();
                   ctx.moveTo(lm[i].x * width, lm[i].y * height);
                   ctx.lineTo(lm[j].x * width, lm[j].y * height);
@@ -371,20 +409,32 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
                 }
               });
 
+              // GLOWING ANATOMICAL KEYPOINT NODES
               lm.forEach((pt, idx) => {
-                if ([11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].includes(idx) && (pt.visibility || 1) > 0.4) {
+                if ([0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32].includes(idx) && (pt.visibility || 1) > 0.3) {
+                  const px = pt.x * width;
+                  const py = pt.y * height;
+                  const nodeRadius = Math.max(5, Math.round(width / 140));
+
+                  // Outer Glow Aura
+                  ctx.fillStyle = compRes.safetyStatus === 'unsafe' ? 'rgba(239, 68, 68, 0.4)' : compRes.safetyStatus === 'caution' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(252, 76, 2, 0.4)';
+                  ctx.beginPath();
+                  ctx.arc(px, py, nodeRadius + 3.5, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  // Inner Solid Dot
                   ctx.fillStyle = '#ffffff';
                   ctx.beginPath();
-                  ctx.arc(pt.x * width, pt.y * height, 4.5, 0, Math.PI * 2);
+                  ctx.arc(px, py, nodeRadius - 1, 0, Math.PI * 2);
                   ctx.fill();
                   ctx.lineWidth = 2;
-                  ctx.strokeStyle = '#fc4c02';
+                  ctx.strokeStyle = connColor;
                   ctx.stroke();
                 }
               });
             }
 
-            // Draw Hands & Finger Landmarks
+            // Draw Hands & Finger Landmarks with Scaled Line & Node Radius
             if (handRes && handRes.landmarks && handRes.landmarks.length > 0) {
               handRes.landmarks.forEach((handLm, hIdx) => {
                 const metrics = calculateHandMetrics(handLm);
@@ -394,7 +444,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
                 HAND_CONNECTIONS.forEach(([i, j]) => {
                   if (handLm[i] && handLm[j]) {
                     ctx.strokeStyle = handColor;
-                    ctx.lineWidth = 2;
+                    ctx.lineWidth = Math.max(2, Math.round(width / 260));
                     ctx.beginPath();
                     ctx.moveTo(handLm[i].x * width, handLm[i].y * height);
                     ctx.lineTo(handLm[j].x * width, handLm[j].y * height);
@@ -405,7 +455,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
                 handLm.forEach((pt) => {
                   ctx.fillStyle = handColor;
                   ctx.beginPath();
-                  ctx.arc(pt.x * width, pt.y * height, 3, 0, Math.PI * 2);
+                  ctx.arc(pt.x * width, pt.y * height, Math.max(3, Math.round(width / 220)), 0, Math.PI * 2);
                   ctx.fill();
                 });
               });
@@ -632,12 +682,13 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
           style={{
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
+            objectFit: 'contain',
             transform: (facingMode === 'user' && activeVideoSource === 'webcam') ? 'scaleX(-1)' : 'none',
             display: cameraActive ? 'block' : 'none'
           }}
         />
 
+        {/* CANVAS OVERLAY WITH MATCHING OBJECT-FIT AND MIRROR TRANSFORM */}
         <canvas
           ref={canvasRef}
           width={640}
@@ -648,7 +699,9 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
             left: 0,
             width: '100%',
             height: '100%',
+            objectFit: 'contain',
             pointerEvents: 'none',
+            transform: (facingMode === 'user' && activeVideoSource === 'webcam') ? 'scaleX(-1)' : 'none',
             display: cameraActive ? 'block' : 'none'
           }}
         />

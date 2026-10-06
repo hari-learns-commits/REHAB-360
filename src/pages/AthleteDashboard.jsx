@@ -56,6 +56,51 @@ const AthleteDashboard = () => {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Sequential Multi-Exercise Video Recording Queue State
+  const [recordedExerciseProofs, setRecordedExerciseProofs] = useState({});
+  const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
+
+  const prescribedExercises = workoutPlan?.exercises?.map((ex, idx) => ({
+    id: ex.id || (idx === 0 ? 'squat' : idx === 1 ? 'bicep_curl' : 'overhead_press'),
+    name: ex.name,
+    sets: ex.sets,
+    reps: ex.reps,
+    load: ex.load,
+    tempo: ex.tempo,
+    notes: ex.notes
+  })) || [
+    { id: 'squat', name: 'Bodyweight Squat', sets: 3, reps: 10, load: 'Bodyweight', tempo: '2-1-2' },
+    { id: 'bicep_curl', name: 'Bicep Curl', sets: 3, reps: 12, load: '5kg Dumbbells', tempo: '2-0-2' },
+    { id: 'overhead_press', name: 'Overhead Shoulder Press', sets: 3, reps: 10, load: '5kg Dumbbells', tempo: '2-0-2' }
+  ];
+
+  const totalPrescribedCount = prescribedExercises.length;
+  const recordedCount = Object.keys(recordedExerciseProofs).length;
+  const isAllExercisesRecorded = recordedCount >= totalPrescribedCount;
+
+  // Handle saving individual exercise video proof & advancing queue
+  const handleSaveExerciseSession = (sessionData) => {
+    const activeEx = prescribedExercises[activeExerciseIndex] || prescribedExercises[0];
+    const exId = sessionData.exerciseId || activeEx?.id || 'squat';
+    const updatedProofs = {
+      ...recordedExerciseProofs,
+      [exId]: sessionData
+    };
+    setRecordedExerciseProofs(updatedProofs);
+    setRecordedVideoUrl(sessionData.recordedVideoUrl);
+
+    // Check off completed exercise in checklist
+    setCompletedExercises(prev => prev.map(ex => (ex.id === exId || ex.name === activeEx.name) ? { ...ex, completed: true } : ex));
+
+    const nextIndex = activeExerciseIndex + 1;
+    if (nextIndex < prescribedExercises.length) {
+      setActiveExerciseIndex(nextIndex);
+      alert(`✓ Exercise ${activeExerciseIndex + 1}/${prescribedExercises.length} (${sessionData.exerciseName || activeEx.name}) video recorded!\n\nUnlocked Next Exercise: ${prescribedExercises[nextIndex].name}. Please record or upload video for Exercise ${nextIndex + 1}.`);
+    } else {
+      alert(`🎉 All ${prescribedExercises.length} prescribed exercise videos recorded!\n\nYou can now push the complete workout package and telemetry directly to your Doctor.`);
+    }
+  };
+
   // Gemini AI Insights State
   const [aiInsights, setAiInsights] = useState(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
@@ -126,16 +171,19 @@ const AthleteDashboard = () => {
     }, 3500);
   };
 
-  // Submit Workout Log
+  // Submit Workout Log (Requires ALL Prescribed Exercises to be Recorded First)
   const handleWorkoutSubmit = (e) => {
     e.preventDefault();
-    if (!recordedVideoUrl) {
-      alert("Compulsory Video Proof is required! Please record or upload workout video proof first.");
+    if (!isAllExercisesRecorded) {
+      alert(`⚠️ Video proof for ALL ${totalPrescribedCount} prescribed exercises is required!\n\nCurrently Recorded: ${recordedCount}/${totalPrescribedCount}. Please record or upload video proof for all exercises before pushing to Doctor.`);
       return;
     }
     setIsSubmitting(true);
 
     setTimeout(() => {
+      const allVideos = Object.values(recordedExerciseProofs).map(p => `${p.exerciseName}: ${p.recordedVideoUrl}`).join(' | ');
+      const firstVideo = Object.values(recordedExerciseProofs)[0]?.recordedVideoUrl || recordedVideoUrl;
+
       const evaluation = processWorkoutEndEndpoint({
         athleteId: currentUser?.id || "ATH-202",
         athleteName: currentUser?.name || "Alex Morgan",
@@ -143,16 +191,16 @@ const AthleteDashboard = () => {
         doctorName: currentUser?.assignedDoctorName || "Dr. Valli",
         injuryId: currentUser?.conditionId || "KNEE_001",
         completedExercises,
-        videoProofUrl: recordedVideoUrl,
+        videoProofUrl: firstVideo,
         painScore: Number(painScore),
         fatigueLevel: Number(fatigueLevel),
-        notes: athleteNotes
+        notes: athleteNotes || `Recorded all ${totalPrescribedCount} exercise videos. Proofs: ${allVideos}`
       });
 
       addWorkoutLog(evaluation);
       setIsSubmitting(false);
       setAthleteNotes('');
-      alert("Workout log and compulsory video proof submitted successfully! AI analysis ready.");
+      alert(`✓ All ${totalPrescribedCount} Prescribed Exercise Videos & Telemetry submitted successfully!\n\nAI analysis ready and synced directly to Doctor & Physio Dashboard.`);
       setActiveTab('endpoint_analysis');
     }, 1200);
   };
@@ -570,61 +618,141 @@ const AthleteDashboard = () => {
         {/* 2. YOUR WORKOUT PLAN TAB */}
         {activeTab === 'workout' && (
           <div className="flex flex-col gap-6">
+            {/* SEQUENTIAL MULTI-EXERCISE QUEUE STEPPER HEADER */}
+            <div className="glass-card" style={{ padding: '1.25rem', background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div>
+                  <span className="text-xs font-extrabold text-primary uppercase" style={{ letterSpacing: '0.05em' }}>
+                    PRESCRIBED WORKOUT SEQUENTIAL RECORDING QUEUE
+                  </span>
+                  <h3 className="text-base font-bold text-main">
+                    Exercise {activeExerciseIndex + 1} of {totalPrescribedCount}: {prescribedExercises[activeExerciseIndex]?.name}
+                  </h3>
+                </div>
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    padding: '0.35rem 0.85rem',
+                    borderRadius: '999px',
+                    background: isAllExercisesRecorded ? '#dcfce7' : '#fff7ed',
+                    color: isAllExercisesRecorded ? '#15803d' : '#fc4c02',
+                    border: isAllExercisesRecorded ? '1px solid #86efac' : '1px solid #fed7aa'
+                  }}
+                >
+                  {recordedCount} / {totalPrescribedCount} EXERCISE VIDEOS LOGGED
+                </span>
+              </div>
+
+              {/* Stepper pills */}
+              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {prescribedExercises.map((ex, idx) => {
+                  const isRecorded = !!recordedExerciseProofs[ex.id];
+                  const isActive = idx === activeExerciseIndex;
+                  const isLocked = !isRecorded && idx > activeExerciseIndex && !recordedExerciseProofs[prescribedExercises[idx - 1]?.id];
+
+                  return (
+                    <button
+                      key={ex.id || idx}
+                      disabled={isLocked}
+                      onClick={() => setActiveExerciseIndex(idx)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        padding: '0.55rem 0.95rem',
+                        borderRadius: '10px',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        border: isActive ? '1px solid #fc4c02' : isRecorded ? '1px solid #22c55e' : '1px solid #cbd5e1',
+                        background: isActive ? '#fff7ed' : isRecorded ? '#f0fdf4' : isLocked ? '#f8fafc' : '#ffffff',
+                        color: isActive ? '#fc4c02' : isRecorded ? '#15803d' : isLocked ? '#94a3b8' : '#0f172a',
+                        cursor: isLocked ? 'not-allowed' : 'pointer',
+                        opacity: isLocked ? 0.6 : 1,
+                        flexShrink: 0
+                      }}
+                    >
+                      {isRecorded ? (
+                        <CheckCircle2 size={15} color="#22c55e" />
+                      ) : isLocked ? (
+                        <span style={{ fontSize: '0.85rem' }}>🔒</span>
+                      ) : (
+                        <span style={{ fontSize: '0.85rem' }}>📹</span>
+                      )}
+                      <span>Ex {idx + 1}: {ex.name}</span>
+                      {isRecorded && (
+                        <span style={{ fontSize: '0.65rem', fontWeight: 900, background: '#22c55e', color: '#fff', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+                          Saved ✓
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Real-Time Google MediaPipe 3D Vision & Vector Trigonometry Engine */}
             <MediaPipePoseTracker
-              onCompleteSession={({ recordedVideoUrl: url, romDegrees, symmetryPercent, valgusAngle, repsCompleted, formScore }) => {
-                setRecordedVideoUrl(url);
-                const evalData = processWorkoutEndEndpoint({
-                  athleteId: currentUser?.id || "ATH-202",
-                  athleteName: currentUser?.name || "Alex Morgan",
-                  doctorId: "DOC-101",
-                  doctorName: currentUser?.assignedDoctorName || "Dr. Valli",
-                  injuryId: currentUser?.conditionId || "KNEE_001",
-                  completedExercises,
-                  videoProofUrl: url,
-                  painScore: Number(painScore),
-                  fatigueLevel: Number(fatigueLevel),
-                  notes: athleteNotes || `MediaPipe Vision Session: ${repsCompleted} reps completed. ROM: ${romDegrees}°, Symmetry: ${symmetryPercent}%, Valgus: ${valgusAngle}°.`
-                });
-
-                // Override calculated metrics from live tracker
-                evalData.metrics.romDegrees = romDegrees;
-                evalData.metrics.movementSymmetryPercent = symmetryPercent;
-                evalData.metrics.valgusAngleDeviation = valgusAngle;
-                evalData.metrics.overallQualityScore = formScore;
-
-                addWorkoutLog(evalData);
-                alert(`✓ Google MediaPipe Camera Analysis Complete!\n\nLive Captured Telemetry:\n• Knee Flexion (ROM): ${romDegrees}°\n• Kinetic Symmetry: ${symmetryPercent}%\n• Valgus Deviation: ${valgusAngle}°\n• Reps Completed: ${repsCompleted}\n\nSynced directly to Doctor & Physio Dashboard!`);
-                setActiveTab('endpoint_analysis');
-              }}
+              activeExerciseId={prescribedExercises[activeExerciseIndex]?.id || 'squat'}
+              activeExerciseName={prescribedExercises[activeExerciseIndex]?.name || 'Bodyweight Squat'}
+              exerciseIndex={activeExerciseIndex}
+              totalExercises={totalPrescribedCount}
+              onSaveExerciseSession={handleSaveExerciseSession}
+              onCompleteSession={handleSaveExerciseSession}
             />
 
             <div className="glass-card" style={{ padding: '2rem' }}>
-              <h2 className="text-xl font-bold text-main mb-2">Prescribed Workout Execution & Logging</h2>
+              <h2 className="text-xl font-bold text-main mb-2">Prescribed Workout Execution & Doctor Submission</h2>
               <p className="text-sm text-muted mb-6">
-                Check off your prescribed exercises and log subjective pain score to update your daily status.
+                Record or upload video proof for all {totalPrescribedCount} prescribed exercises below. Submission to doctor is unlocked only when all exercise videos are recorded.
               </p>
 
               {/* Workout Logging Form */}
               <form onSubmit={handleWorkoutSubmit} className="flex flex-col gap-5">
                 <div>
-                  <h4 className="text-sm font-bold text-main mb-3">Prescribed Exercise Check-Off</h4>
+                  <h4 className="text-sm font-bold text-main mb-3">Prescribed Exercise Video Status Checklist</h4>
                   <div className="flex flex-col gap-2">
-                    {completedExercises.map((ex, index) => (
-                      <label key={ex.id || index} className="flex items-center gap-3 p-3" style={{ background: '#fafafa', borderRadius: 'var(--radius-md)', border: '1px solid #f1f5f9', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={ex.completed}
-                          onChange={(e) => {
-                            const copy = [...completedExercises];
-                            copy[index].completed = e.target.checked;
-                            setCompletedExercises(copy);
+                    {prescribedExercises.map((ex, index) => {
+                      const isRecorded = !!recordedExerciseProofs[ex.id];
+                      return (
+                        <div
+                          key={ex.id || index}
+                          className="flex items-center justify-between p-3.5"
+                          style={{
+                            background: isRecorded ? '#f0fdf4' : '#fafafa',
+                            borderRadius: 'var(--radius-md)',
+                            border: isRecorded ? '1px solid #bbf7d0' : '1px solid #f1f5f9'
                           }}
-                          style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
-                        />
-                        <span className="text-sm font-bold text-main">{ex.name} ({ex.sets} sets × {ex.reps} reps)</span>
-                      </label>
-                    ))}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              readOnly
+                              checked={isRecorded}
+                              style={{ width: '18px', height: '18px', accentColor: '#22c55e' }}
+                            />
+                            <div>
+                              <span className="text-sm font-bold text-main block">{ex.name} ({ex.sets} sets × {ex.reps} reps)</span>
+                              <span className="text-xs text-muted">Target: {ex.load} • Tempo: {ex.tempo}</span>
+                            </div>
+                          </div>
+                          {isRecorded ? (
+                            <span className="text-xs font-bold text-green-700 bg-green-100 px-3 py-1 rounded-full border border-green-300">
+                              Video Recorded ✓
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setActiveExerciseIndex(index)}
+                              className="btn-outline text-xs"
+                              style={{ padding: '0.35rem 0.75rem' }}
+                            >
+                              {index === activeExerciseIndex ? "Recording Now..." : "Select to Record"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -665,18 +793,37 @@ const AthleteDashboard = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-main mb-1 block">Session Notes / Observations</label>
+                  <label className="text-xs font-bold text-main mb-1 block">Session Notes / Observations for Doctor</label>
                   <textarea
                     rows={2}
                     value={athleteNotes}
                     onChange={(e) => setAthleteNotes(e.target.value)}
-                    placeholder="Log how your knee/joint felt during squats..."
+                    placeholder="Log how your joint felt across all prescribed exercises..."
                     style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
                   />
                 </div>
 
-                <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ padding: '0.85rem', fontSize: '0.95rem' }}>
-                  {isSubmitting ? "Processing AI Video Endpoint..." : "Submit Session & Compute AI Readiness"}
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !isAllExercisesRecorded}
+                  className="btn-primary"
+                  style={{
+                    padding: '0.9rem',
+                    fontSize: '0.95rem',
+                    background: isAllExercisesRecorded
+                      ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                      : '#cbd5e1',
+                    color: isAllExercisesRecorded ? '#ffffff' : '#64748b',
+                    cursor: isAllExercisesRecorded ? 'pointer' : 'not-allowed',
+                    border: 'none',
+                    boxShadow: isAllExercisesRecorded ? '0 4px 14px rgba(16, 185, 129, 0.35)' : 'none'
+                  }}
+                >
+                  {isSubmitting
+                    ? "Processing AI Video Endpoint & Submitting..."
+                    : isAllExercisesRecorded
+                    ? `✓ Push All ${totalPrescribedCount} Exercise Videos & Telemetry to Doctor →`
+                    : `🔒 Push Disabled — Record Videos for All ${totalPrescribedCount} Exercises (${recordedCount}/${totalPrescribedCount} Done)`}
                 </button>
               </form>
             </div>
