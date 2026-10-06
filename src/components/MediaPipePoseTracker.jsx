@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PoseLandmarker, HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
-import { Camera, CameraOff, Square, RefreshCw, CheckCircle2, AlertTriangle, Play, SwitchCamera, Upload, Hand, Sparkles } from 'lucide-react';
+import { Camera, CameraOff, Square, RefreshCw, CheckCircle2, AlertTriangle, Play, Pause, SwitchCamera, Upload, Hand, Sparkles } from 'lucide-react';
 import {
   calculateJointAngle,
   calculateArmAngles,
@@ -70,6 +70,19 @@ const MediaPipePoseTracker = ({
   const [recordedVideoUrl, setRecordedVideoUrl] = useState('');
   const [cameraError, setCameraError] = useState('');
   const [activeVideoSource, setActiveVideoSource] = useState('none'); // 'webcam' | 'file' | 'none'
+  const [isVideoPaused, setIsVideoPaused] = useState(false);
+
+  const toggleVideoPlayback = () => {
+    if (videoRef.current && activeVideoSource === 'file') {
+      if (videoRef.current.paused) {
+        videoRef.current.play().catch(err => console.warn("Video play error:", err));
+        setIsVideoPaused(false);
+      } else {
+        videoRef.current.pause();
+        setIsVideoPaused(true);
+      }
+    }
+  };
 
   // AI Analysis Modal State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -192,6 +205,7 @@ const MediaPipePoseTracker = ({
     }
     setCameraActive(false);
     setActiveVideoSource('none');
+    setIsVideoPaused(false);
     if (isRecording) stopRecording();
   };
 
@@ -247,6 +261,7 @@ const MediaPipePoseTracker = ({
       setRecordedVideoUrl(url);
       setActiveVideoSource('file');
       setCameraActive(true);
+      setIsVideoPaused(false);
       setFormFeedback(`Analyzing uploaded video file: ${file.name}`);
       setCameraError('');
 
@@ -263,10 +278,12 @@ const MediaPipePoseTracker = ({
           videoRef.current.src = url;
           videoRef.current.loop = false;
           videoRef.current.onended = () => {
+            setIsVideoPaused(true);
             setIsRecording(false);
             setFormFeedback(`✓ Uploaded video analysis complete! Full runtime scanned.`);
           };
           videoRef.current.play().catch(err => console.warn("Video play error:", err));
+          setIsVideoPaused(false);
         }
       }, 100);
     }
@@ -596,6 +613,27 @@ const MediaPipePoseTracker = ({
             </button>
           )}
 
+          {cameraActive && activeVideoSource === 'file' && (
+            <button
+              onClick={toggleVideoPlayback}
+              className="btn-secondary"
+              style={{
+                padding: '0.65rem 1.25rem',
+                fontSize: '0.85rem',
+                background: isVideoPaused ? '#fc4c02' : '#1e293b',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                border: '1px solid var(--primary)',
+                cursor: 'pointer'
+              }}
+            >
+              {isVideoPaused ? <Play size={16} /> : <Pause size={16} />}
+              {isVideoPaused ? 'Play Video' : 'Pause Video'}
+            </button>
+          )}
+
           <label className="btn-secondary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem', cursor: 'pointer', background: '#1e293b', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <Upload size={16} color="var(--primary)" /> Upload Video File
             <input type="file" accept="video/*" onChange={handleFileUpload} style={{ display: 'none' }} />
@@ -659,14 +697,48 @@ const MediaPipePoseTracker = ({
           </div>
         )}
 
+        {/* CENTER PAUSE OVERLAY FOR UPLOADED VIDEO */}
+        {cameraActive && activeVideoSource === 'file' && isVideoPaused && (
+          <div
+            onClick={toggleVideoPlayback}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(15, 23, 42, 0.85)',
+              backdropFilter: 'blur(8px)',
+              border: '2px solid #fc4c02',
+              borderRadius: '50%',
+              width: '72px',
+              height: '72px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 25,
+              boxShadow: '0 8px 24px rgba(252, 76, 2, 0.4)'
+            }}
+          >
+            <Play size={36} color="#fc4c02" style={{ marginLeft: '4px' }} />
+          </div>
+        )}
+
         {/* ALWAYS MOUNTED VIDEO TAG (SUPPORTS WEBCAM & UPLOADED VIDEO FILES) */}
         <video
           ref={videoRef}
           playsInline
           muted
           autoPlay
+          onPlay={() => setIsVideoPaused(false)}
+          onPause={() => {
+            if (activeVideoSource === 'file') {
+              setIsVideoPaused(true);
+            }
+          }}
           onEnded={() => {
             if (activeVideoSource === 'file') {
+              setIsVideoPaused(true);
               setIsRecording(false);
               setFormFeedback(`✓ Video file analysis complete! Full runtime scanned & joint telemetry recorded.`);
             }
@@ -676,7 +748,13 @@ const MediaPipePoseTracker = ({
             height: '100%',
             objectFit: 'contain',
             transform: (facingMode === 'user' && activeVideoSource === 'webcam') ? 'scaleX(-1)' : 'none',
-            display: cameraActive ? 'block' : 'none'
+            display: cameraActive ? 'block' : 'none',
+            cursor: activeVideoSource === 'file' ? 'pointer' : 'default'
+          }}
+          onClick={() => {
+            if (activeVideoSource === 'file') {
+              toggleVideoPlayback();
+            }
           }}
         />
 
@@ -685,6 +763,11 @@ const MediaPipePoseTracker = ({
           ref={canvasRef}
           width={640}
           height={420}
+          onClick={() => {
+            if (activeVideoSource === 'file') {
+              toggleVideoPlayback();
+            }
+          }}
           style={{
             position: 'absolute',
             top: 0,
@@ -692,7 +775,8 @@ const MediaPipePoseTracker = ({
             width: '100%',
             height: '100%',
             objectFit: 'contain',
-            pointerEvents: 'none',
+            pointerEvents: activeVideoSource === 'file' ? 'auto' : 'none',
+            cursor: activeVideoSource === 'file' ? 'pointer' : 'default',
             transform: (facingMode === 'user' && activeVideoSource === 'webcam') ? 'scaleX(-1)' : 'none',
             display: cameraActive ? 'block' : 'none'
           }}
@@ -770,7 +854,28 @@ const MediaPipePoseTracker = ({
       {/* RECORDING CONTROL DOCK */}
       {cameraActive && (
         <div className="flex justify-between items-center mt-4 flex-wrap gap-4">
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap items-center">
+            {activeVideoSource === 'file' && (
+              <button
+                onClick={toggleVideoPlayback}
+                className="btn-secondary"
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  fontSize: '0.9rem',
+                  background: isVideoPaused ? '#fc4c02' : '#1e293b',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  border: '1px solid var(--primary)',
+                  cursor: 'pointer'
+                }}
+              >
+                {isVideoPaused ? <Play size={18} /> : <Pause size={18} />}
+                {isVideoPaused ? 'Play Uploaded Video' : 'Pause Uploaded Video'}
+              </button>
+            )}
+
             {!isRecording ? (
               <button onClick={startRecording} className="btn-primary" style={{ padding: '0.75rem 1.5rem', fontSize: '0.9rem' }}>
                 <Play size={18} /> Start Session & Record Telemetry
