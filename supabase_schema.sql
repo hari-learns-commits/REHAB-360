@@ -105,12 +105,27 @@ CREATE TABLE IF NOT EXISTS public.daily_readiness_logs (
   UNIQUE(patient_id, log_date)
 );
 
+-- 8. Athlete Rep-Level Workout Telemetry Sessions
+CREATE TABLE IF NOT EXISTS public.athlete_workout_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    athlete_id TEXT NOT NULL,
+    exercise_id TEXT NOT NULL,
+    total_reps INTEGER NOT NULL,
+    avg_tempo_ms INTEGER NOT NULL,
+    fatigue_index_pct INTEGER NOT NULL,
+    fault_summary JSONB DEFAULT '{}'::jsonb,
+    raw_telemetry JSONB DEFAULT '[]'::jsonb,
+    ai_summary_markdown TEXT,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
+);
+
 -- Indexing & Concurrency Optimizations
 CREATE INDEX IF NOT EXISTS idx_patient_active_injury ON public.patient_profiles(active_injury_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_patient_time ON public.rehabilitation_sessions(patient_id, start_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_readiness_patient_date ON public.daily_readiness_logs(patient_id, log_date DESC);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_patient ON public.rehabilitation_prescriptions(patient_id) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_telemetry_playback ON public.session_telemetry_frames(session_id, timestamp_offset_ms ASC);
+CREATE INDEX IF NOT EXISTS idx_workout_sessions_athlete_id ON public.athlete_workout_sessions (athlete_id, created_at DESC);
 
 -- Row-Level Security
 ALTER TABLE public.patient_profiles ENABLE ROW LEVEL SECURITY;
@@ -118,3 +133,4 @@ ALTER TABLE public.rehabilitation_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.session_telemetry_frames ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_readiness_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rehabilitation_prescriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.athlete_workout_sessions ENABLE ROW LEVEL SECURITY;

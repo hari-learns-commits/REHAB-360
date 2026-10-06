@@ -1,7 +1,6 @@
 // Doctor-Directed Workout Plan Service
 // Handles storage and management of workout plans created by Doctors for Athletes.
 
-// Default initial plans prescribed by Dr. Valli for Alex Morgan and Nidheesh S
 const DEFAULT_DOCTOR_PLANS = {
   "ATH-202": {
     athleteId: "ATH-202",
@@ -85,9 +84,6 @@ const DEFAULT_DOCTOR_PLANS = {
   }
 };
 
-/**
- * Get active doctor-prescribed workout plan for an athlete
- */
 export const getAthleteWorkoutPlan = (athleteId) => {
   try {
     const customPlans = JSON.parse(localStorage.getItem('rehab360_doctor_plans') || '{}');
@@ -106,9 +102,6 @@ export const getAthleteWorkoutPlan = (athleteId) => {
   };
 };
 
-/**
- * Save or update a workout plan drafted by a Doctor
- */
 export const saveDoctorWorkoutPlan = (plan) => {
   try {
     const customPlans = JSON.parse(localStorage.getItem('rehab360_doctor_plans') || '{}');
@@ -123,3 +116,62 @@ export const saveDoctorWorkoutPlan = (plan) => {
     return false;
   }
 };
+
+/**
+ * Saves a completed session with full telemetry and Gemini feedback
+ */
+export async function saveWorkoutSessionRecord({
+  athleteId = 'ATH-202',
+  exerciseId = 'squat',
+  telemetryLog = [],
+  report = {}
+}) {
+  const payload = {
+    id: `sess-${Date.now()}`,
+    athlete_id: athleteId,
+    exercise_id: exerciseId,
+    total_reps: report?.stats?.totalReps || telemetryLog.length || 0,
+    avg_tempo_ms: report?.stats?.avgDuration || 2500,
+    fatigue_index_pct: report?.stats?.fatigueIndexPct || 12,
+    fault_summary: report?.stats?.faultFrequency || {},
+    raw_telemetry: telemetryLog,
+    ai_summary_markdown: report?.summaryMarkdown || 'Session recorded cleanly.',
+    created_at: new Date().toISOString()
+  };
+
+  try {
+    const existing = JSON.parse(localStorage.getItem('rehab360_session_records') || '[]');
+    existing.unshift(payload);
+    localStorage.setItem('rehab360_session_records', JSON.stringify(existing));
+  } catch (e) {
+    console.warn("Failed to store session in localStorage:", e);
+  }
+
+  return payload;
+}
+
+/**
+ * Fetches recent workout telemetry sessions for a given athlete
+ */
+export async function getAthleteWorkoutHistory(athleteId = 'ATH-202') {
+  try {
+    const existing = JSON.parse(localStorage.getItem('rehab360_session_records') || '[]');
+    const filtered = existing.filter(s => s.athlete_id === athleteId || !athleteId);
+    if (filtered.length > 0) return filtered;
+  } catch (e) {}
+
+  // Sample default session
+  return [
+    {
+      id: 'sess-default-101',
+      athlete_id: athleteId,
+      exercise_id: 'squat',
+      total_reps: 8,
+      avg_tempo_ms: 2800,
+      fatigue_index_pct: 18,
+      fault_summary: { 'Knee Valgus Wobble': 2 },
+      ai_summary_markdown: '### 📊 Session Summary\n8 Bodyweight Squats completed with 88% average LSI. Mild concentric slowdown (+18%) observed in final reps.',
+      created_at: new Date(Date.now() - 3600000).toISOString()
+    }
+  ];
+}
