@@ -52,6 +52,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState('');
   const [cameraError, setCameraError] = useState('');
+  const [activeVideoSource, setActiveVideoSource] = useState('none'); // 'webcam' | 'file' | 'none'
 
   // AI Analysis Modal State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -131,16 +132,17 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
 
   // Guarantee Video Stream Attachment on Camera Active State Change
   useEffect(() => {
-    if (cameraActive && streamRef.current && videoRef.current) {
+    if (cameraActive && streamRef.current && videoRef.current && activeVideoSource === 'webcam') {
       if (videoRef.current.srcObject !== streamRef.current) {
         videoRef.current.srcObject = streamRef.current;
         videoRef.current.play().catch(e => console.warn("Video play error:", e));
       }
     }
-  }, [cameraActive]);
+  }, [cameraActive, activeVideoSource]);
 
   const startCamera = async () => {
     setCameraError('');
+    setActiveVideoSource('webcam');
     setCameraActive(true);
 
     try {
@@ -169,8 +171,10 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.src = "";
     }
     setCameraActive(false);
+    setActiveVideoSource('none');
     if (isRecording) stopRecording();
   };
 
@@ -188,7 +192,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     setRepsCount(0);
     recordedChunksRef.current = [];
 
-    if (streamRef.current) {
+    if (streamRef.current && activeVideoSource === 'webcam') {
       try {
         const recorder = new MediaRecorder(streamRef.current, { mimeType: 'video/webm' });
         recorder.ondataavailable = (e) => {
@@ -214,16 +218,34 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     }
   };
 
+  // Upload Recorded Video File Handler
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
       const url = URL.createObjectURL(file);
+      setRecordedVideoUrl(url);
+      setActiveVideoSource('file');
       setCameraActive(true);
+      setFormFeedback(`Analyzing uploaded video file: ${file.name}`);
+      setCameraError('');
+
+      // Auto start telemetry log
+      startEpochRef.current = performance.now();
+      telemetryRef.current = [];
+      repTelemetryLogRef.current = [];
+      setRepsCount(0);
+      setIsRecording(true);
+
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = null;
           videoRef.current.src = url;
-          videoRef.current.play();
+          videoRef.current.loop = true;
+          videoRef.current.play().catch(err => console.warn("Video play error:", err));
         }
       }, 100);
     }
@@ -255,7 +277,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
     }
   };
 
-  // Continuous Camera Frame Processing Loop
+  // Continuous Camera & Uploaded Video Frame Processing Loop
   useEffect(() => {
     let simPhase = 0;
     let prevMinAngle = 170;
@@ -272,7 +294,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
 
       let poseLandmarksFound = false;
 
-      // 1. PROCESS REAL-TIME MEDIAPIPE FEED
+      // 1. PROCESS REAL-TIME MEDIAPIPE FEED (Webcam OR Uploaded Video File)
       if (cameraActive && videoRef.current && videoRef.current.readyState >= 2 && poseLandmarkerRef.current) {
         if (videoRef.current.currentTime !== lastVideoTimeRef.current) {
           lastVideoTimeRef.current = videoRef.current.currentTime;
@@ -394,8 +416,8 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
         }
       }
 
-      // 2. FALLBACK HYBRID SKELETON
-      if (!poseLandmarksFound) {
+      // 2. FALLBACK HYBRID SKELETON (IF NO LANDMARKS OR STANDBY)
+      if (!poseLandmarksFound && cameraActive) {
         simPhase += 0.04;
         const squatDepth = isRecording ? (Math.sin(simPhase) + 1) / 2 : 0.15;
         const currentAngle = Math.round(170 - squatDepth * 62);
@@ -487,7 +509,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
             GOOGLE MEDIAPIPE HOLISTIC VISION & DYNAMIC REP ENGINE
           </span>
           <h3 className="text-xl font-bold text-main flex items-center gap-2">
-            Real-Time Arm, Palm & Joint Tracking
+            Live Camera & Uploaded Video Tracking
             {!isEngineReady && <RefreshCw size={16} className="animate-spin text-primary" />}
           </h3>
         </div>
@@ -528,7 +550,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
             <option value="lite">Lite Model (Fast Mobile)</option>
           </select>
 
-          {cameraActive && (
+          {cameraActive && activeVideoSource === 'webcam' && (
             <button
               onClick={toggleFacingMode}
               className="btn-outline"
@@ -538,13 +560,18 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
             </button>
           )}
 
+          <label className="btn-secondary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem', cursor: 'pointer', background: '#1e293b', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Upload size={16} color="var(--primary)" /> Upload Video File
+            <input type="file" accept="video/*" onChange={handleFileUpload} style={{ display: 'none' }} />
+          </label>
+
           {!cameraActive ? (
             <button onClick={startCamera} className="btn-primary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}>
-              <Camera size={16} /> Activate Camera
+              <Camera size={16} /> Activate Live Camera
             </button>
           ) : (
             <button onClick={stopCamera} className="btn-outline" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem', color: '#ef4444', borderColor: '#fca5a5' }}>
-              <CameraOff size={16} /> Stop Camera
+              <CameraOff size={16} /> Stop Tracking
             </button>
           )}
         </div>
@@ -556,11 +583,6 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
             <AlertTriangle size={16} color="#fc4c02" />
             <span>{cameraError}</span>
           </div>
-
-          <label className="btn-outline" style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem', cursor: 'pointer' }}>
-            <Upload size={14} /> Upload Video File
-            <input type="file" accept="video/*" onChange={handleFileUpload} style={{ display: 'none' }} />
-          </label>
         </div>
       )}
 
@@ -585,17 +607,23 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
         {!cameraActive && (
           <div className="flex flex-col items-center gap-3 text-center p-6 text-slate-300 z-10">
             <Hand size={48} color="#fc4c02" />
-            <h4 className="text-lg font-bold text-white">MediaPipe AI Holistic Camera Standby</h4>
+            <h4 className="text-lg font-bold text-white">MediaPipe AI Holistic Motion Tracking</h4>
             <p className="text-xs text-slate-400 max-w-md mb-2">
-              Client-side computer vision engine detects 33 body pose points + 21 finger joints per hand in real-time.
+              Detects 33 body pose joints + 21 finger landmarks per hand in real-time from your live webcam or uploaded recorded video file.
             </p>
-            <button onClick={startCamera} className="btn-primary" style={{ padding: '0.65rem 1.5rem', fontSize: '0.875rem' }}>
-              <Camera size={18} /> Activate Camera
-            </button>
+            <div className="flex gap-3 flex-wrap justify-center">
+              <button onClick={startCamera} className="btn-primary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}>
+                <Camera size={16} /> Activate Live Camera
+              </button>
+              <label className="btn-secondary" style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem', cursor: 'pointer', background: '#1e293b', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Upload size={16} color="var(--primary)" /> Upload Video File
+                <input type="file" accept="video/*" onChange={handleFileUpload} style={{ display: 'none' }} />
+              </label>
+            </div>
           </div>
         )}
 
-        {/* ALWAYS MOUNTED VIDEO TAG (PREVENTS NULL REF ON USERMEDIA) */}
+        {/* ALWAYS MOUNTED VIDEO TAG (SUPPORTS WEBCAM & UPLOADED VIDEO FILES) */}
         <video
           ref={videoRef}
           playsInline
@@ -605,7 +633,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            transform: (facingMode === 'user' && activeVideoSource === 'webcam') ? 'scaleX(-1)' : 'none',
             display: cameraActive ? 'block' : 'none'
           }}
         />
@@ -691,7 +719,7 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
                 <span style={{ fontSize: '0.825rem', fontWeight: 700 }}>{formFeedback}</span>
               </div>
               <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                Status: <strong style={{ color: safetyStatus === 'unsafe' ? '#ef4444' : safetyStatus === 'caution' ? '#f59e0b' : '#22c55e' }}>{safetyStatus.toUpperCase()}</strong>
+                Source: <strong style={{ color: activeVideoSource === 'file' ? '#38bdf8' : '#22c55e' }}>{activeVideoSource.toUpperCase()}</strong>
               </span>
             </div>
           </>
@@ -704,11 +732,11 @@ const MediaPipePoseTracker = ({ onCompleteSession }) => {
           <div className="flex gap-3">
             {!isRecording ? (
               <button onClick={startRecording} className="btn-primary" style={{ padding: '0.75rem 1.5rem', fontSize: '0.9rem' }}>
-                <Play size={18} /> Start Session & Record Proof
+                <Play size={18} /> Start Session & Record Telemetry
               </button>
             ) : (
               <button onClick={stopRecording} className="btn-primary" style={{ background: '#ef4444', padding: '0.75rem 1.5rem', fontSize: '0.9rem' }}>
-                <Square size={18} /> Stop Session & Processing
+                <Square size={18} /> Stop Telemetry Collection
               </button>
             )}
             <button
