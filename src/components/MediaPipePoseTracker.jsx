@@ -261,7 +261,11 @@ const MediaPipePoseTracker = ({
         if (videoRef.current) {
           videoRef.current.srcObject = null;
           videoRef.current.src = url;
-          videoRef.current.loop = true;
+          videoRef.current.loop = false;
+          videoRef.current.onended = () => {
+            setIsRecording(false);
+            setFormFeedback(`✓ Uploaded video analysis complete! Full runtime scanned.`);
+          };
           videoRef.current.play().catch(err => console.warn("Video play error:", err));
         }
       }, 100);
@@ -661,6 +665,12 @@ const MediaPipePoseTracker = ({
           playsInline
           muted
           autoPlay
+          onEnded={() => {
+            if (activeVideoSource === 'file') {
+              setIsRecording(false);
+              setFormFeedback(`✓ Video file analysis complete! Full runtime scanned & joint telemetry recorded.`);
+            }
+          }}
           style={{
             width: '100%',
             height: '100%',
