@@ -566,24 +566,6 @@ const MediaPipePoseTracker = ({
 
         <div className="flex gap-2 flex-wrap items-center">
           <select
-            value={selectedExerciseId}
-            onChange={handleExerciseChange}
-            style={{
-              padding: '0.4rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid #cbd5e1',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              background: '#f8fafc',
-              color: '#0f172a'
-            }}
-          >
-            {Object.values(EXERCISE_REGISTRY).map(ex => (
-              <option key={ex.id} value={ex.id}>{ex.name}</option>
-            ))}
-          </select>
-
-          <select
             value={modelComplexity}
             onChange={(e) => setModelComplexity(e.target.value)}
             style={{

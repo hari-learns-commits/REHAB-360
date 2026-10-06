@@ -26,7 +26,8 @@ import {
   Trash2,
   Save,
   Compass,
-  ChevronRight
+  ChevronRight,
+  CheckCircle2
 } from 'lucide-react';
 
 const AthleteDashboard = () => {
