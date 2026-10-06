@@ -27,6 +27,41 @@ const INITIAL_DATA = {
       athleteId: "ATH-202",
       athleteName: "Alex Morgan",
       videoProofUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+      recordedExerciseProofs: {
+        "squat": {
+          exerciseId: "squat",
+          exerciseName: "Bodyweight Squat",
+          status: "recorded",
+          recordedVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+          romDegrees: 115,
+          symmetryPercent: 94,
+          valgusAngle: 2.1,
+          repsCompleted: 10,
+          formScore: 92
+        },
+        "bicep_curl": {
+          exerciseId: "bicep_curl",
+          exerciseName: "Bicep Curl",
+          status: "recorded",
+          recordedVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+          romDegrees: 120,
+          symmetryPercent: 96,
+          valgusAngle: 1.8,
+          repsCompleted: 12,
+          formScore: 95
+        },
+        "overhead_press": {
+          exerciseId: "overhead_press",
+          exerciseName: "Overhead Shoulder Press",
+          status: "recorded",
+          recordedVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+          romDegrees: 108,
+          symmetryPercent: 92,
+          valgusAngle: 2.5,
+          repsCompleted: 10,
+          formScore: 90
+        }
+      },
       painScore: 2,
       fatigueLevel: 3,
       hasRecovered: true,

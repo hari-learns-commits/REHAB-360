@@ -260,6 +260,7 @@ const AthleteDashboard = () => {
         doctorName: currentUser?.assignedDoctorName || "Dr. Valli",
         injuryId: currentUser?.conditionId || "KNEE_001",
         completedExercises,
+        recordedExerciseProofs,
         videoProofUrl: firstVideo,
         painScore: Number(painScore),
         fatigueLevel: Number(fatigueLevel),

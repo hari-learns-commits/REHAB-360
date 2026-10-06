@@ -68,6 +68,25 @@ const PhysioDashboard = () => {
   const selectedLog = workoutLogs[0] || null;
   const [annotationNote, setAnnotationNote] = useState('');
   const [videoLinkedMsg, setVideoLinkedMsg] = useState('');
+  const [selectedVideoUrl, setSelectedVideoUrl] = useState('');
+  const [activeExerciseVideoId, setActiveExerciseVideoId] = useState(null);
+
+  useEffect(() => {
+    if (selectedLog) {
+      const proofs = selectedLog.recordedExerciseProofs;
+      if (proofs && Object.keys(proofs).length > 0) {
+        const firstWithVideo = Object.values(proofs).find(p => p.recordedVideoUrl);
+        if (firstWithVideo) {
+          setSelectedVideoUrl(firstWithVideo.recordedVideoUrl);
+          setActiveExerciseVideoId(firstWithVideo.exerciseId);
+        } else {
+          setSelectedVideoUrl(selectedLog.videoProofUrl || '');
+        }
+      } else {
+        setSelectedVideoUrl(selectedLog.videoProofUrl || '');
+      }
+    }
+  }, [selectedLog]);
 
   // Phase Progression Request Form
   const [targetPhase, setTargetPhase] = useState("Phase 3: Dynamic Agility & Plyometrics");
@@ -396,13 +415,63 @@ const PhysioDashboard = () => {
                 <p className="text-base text-muted mb-6">Slow-motion playback & synchronous joint telemetry</p>
 
                 {selectedLog ? (
-                  <SynchronizedVideoTelemetryPlayer
-                    videoUrl={selectedLog.videoProofUrl}
-                    telemetryData={selectedLog.telemetryData || []}
-                    sessionTitle={`Workout Proof (${selectedLog.readinessBadgeText || 'Live Audit'})`}
-                    athleteName={selectedLog.athleteName || 'Alex Morgan'}
-                    date={selectedLog.timestamp ? new Date(selectedLog.timestamp).toLocaleDateString() : new Date().toLocaleDateString()}
-                  />
+                  <>
+                    {/* VIDEO SELECTION SELECTOR FOR ALL ATHLETE RECORDED EXERCISES */}
+                    {selectedLog.recordedExerciseProofs && Object.keys(selectedLog.recordedExerciseProofs).length > 0 && (
+                      <div className="mb-4">
+                        <span className="text-xs font-extrabold text-primary block mb-2 uppercase tracking-wider">
+                          Pushed Exercise Video Logs ({Object.keys(selectedLog.recordedExerciseProofs).length} Exercises Submitted):
+                        </span>
+                        <div className="flex gap-2 overflow-x-auto pb-2 flex-wrap">
+                          {Object.values(selectedLog.recordedExerciseProofs).map((exProof, idx) => {
+                            const isSelected = (activeExerciseVideoId === exProof.exerciseId) || (!activeExerciseVideoId && idx === 0);
+                            return (
+                              <button
+                                key={exProof.exerciseId || idx}
+                                type="button"
+                                onClick={() => {
+                                  setActiveExerciseVideoId(exProof.exerciseId);
+                                  if (exProof.recordedVideoUrl) {
+                                    setSelectedVideoUrl(exProof.recordedVideoUrl);
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.55rem 1rem',
+                                  borderRadius: '10px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 700,
+                                  border: isSelected ? '2px solid #fc4c02' : '1px solid #cbd5e1',
+                                  background: isSelected ? '#fff7ed' : '#f8fafc',
+                                  color: isSelected ? '#fc4c02' : '#0f172a',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                  transition: 'all 0.2s'
+                                }}
+                              >
+                                <Video size={14} color={isSelected ? '#fc4c02' : '#64748b'} />
+                                <span>Ex {idx + 1}: {exProof.exerciseName}</span>
+                                {exProof.status === 'skipped' ? (
+                                  <span className="text-xs font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">⚠️ Skipped</span>
+                                ) : (
+                                  <span className="text-xs font-extrabold text-green-700 bg-green-100 px-2 py-0.5 rounded">✓ Video Logged</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <SynchronizedVideoTelemetryPlayer
+                      videoUrl={selectedVideoUrl || selectedLog.videoProofUrl}
+                      telemetryData={selectedLog.telemetryData || []}
+                      sessionTitle={`Workout Proof (${selectedLog.readinessBadgeText || 'Live Audit'})`}
+                      athleteName={selectedLog.athleteName || 'Alex Morgan'}
+                      date={selectedLog.timestamp ? new Date(selectedLog.timestamp).toLocaleDateString() : new Date().toLocaleDateString()}
+                    />
+                  </>
                 ) : (
                   <div className="text-center p-8 text-muted">No athlete video proof uploaded yet.</div>
                 )}
@@ -430,9 +499,9 @@ const PhysioDashboard = () => {
                           key={exProof.exerciseId || idx}
                           className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
                           style={{
-                            background: exProof.status === 'skipped' ? '#fffbeb' : '#fafafa',
+                            background: exProof.status === 'skipped' ? '#fffbeb' : activeExerciseVideoId === exProof.exerciseId ? '#fff7ed' : '#fafafa',
                             borderRadius: 'var(--radius-md)',
-                            border: exProof.status === 'skipped' ? '1px solid #fde68a' : '1px solid #e2e8f0'
+                            border: exProof.status === 'skipped' ? '1px solid #fde68a' : activeExerciseVideoId === exProof.exerciseId ? '1px solid #fc4c02' : '1px solid #e2e8f0'
                           }}
                         >
                           <div>
@@ -465,15 +534,24 @@ const PhysioDashboard = () => {
                                 Action required: Review athlete loading capacity
                               </span>
                             ) : exProof.recordedVideoUrl ? (
-                              <a
-                                href={exProof.recordedVideoUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveExerciseVideoId(exProof.exerciseId);
+                                  setSelectedVideoUrl(exProof.recordedVideoUrl);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
                                 className="btn-outline text-xs flex items-center gap-1.5"
-                                style={{ padding: '0.4rem 0.85rem' }}
+                                style={{
+                                  padding: '0.4rem 0.85rem',
+                                  background: activeExerciseVideoId === exProof.exerciseId ? '#fc4c02' : '#ffffff',
+                                  color: activeExerciseVideoId === exProof.exerciseId ? '#ffffff' : '#fc4c02',
+                                  borderColor: '#fc4c02'
+                                }}
                               >
-                                <Video size={14} color="var(--primary)" /> View Exercise Video →
-                              </a>
+                                <Video size={14} color={activeExerciseVideoId === exProof.exerciseId ? '#ffffff' : '#fc4c02'} />
+                                {activeExerciseVideoId === exProof.exerciseId ? 'Playing in Telemetry Player ✓' : 'Inspect Exercise Video →'}
+                              </button>
                             ) : (
                               <span className="text-xs text-green-700 font-bold bg-green-50 px-2.5 py-1 rounded border border-green-200">
                                 Video Logged ✓
