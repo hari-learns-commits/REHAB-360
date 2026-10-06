@@ -61,7 +61,7 @@ Format response as clean JSON with keys: "assessment", "weeklyFocus", "caution",
               recoveryScore: parsed.recoveryScore || Math.round((symmetryPercent * 0.6) + (romDegrees / 1.4))
             };
           } catch (e) {
-            // parse fallback
+            // fallback parse
           }
         }
       }
@@ -71,7 +71,6 @@ Format response as clean JSON with keys: "assessment", "weeklyFocus", "caution",
   }
 
   const simulatedScore = Math.min(96, Math.max(60, Math.round((symmetryPercent * 0.5) + ((150 - painScore * 10) * 0.3) + (romDegrees * 0.2))));
-  
   let assessment = `Kinetic loading analysis (OSIICS Code ${taxonomyCode}) reveals strong quadrant stability with ${symmetryPercent}% Limb Symmetry Index (LSI). Active range of motion at ${romDegrees}° is within target parameters for ${currentPhase}.`;
   let weeklyFocus = "Prioritize single-leg eccentric squat drops and VMO muscle activation. Maintain 2-second isometric holds at full extension.";
   let caution = "Monitor medial knee tracking during terminal extension to prevent valgus collapse.";
@@ -99,27 +98,16 @@ export const draftClinicalPrescription = async (patientData, recentSessions, tax
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
 
   const promptText = `
-You are an expert orthopedic sports rehabilitation clinical AI system assisting an orthopedic surgeon.
-Generate an evidence-based exercise prescription protocol adhering strictly to criteria-based milestones (e.g. Melbourne ACL Guide 2.0).
+You are an expert orthopedic sports rehabilitation clinical AI system.
+Generate an evidence-based exercise prescription protocol matching Melbourne ACL Guide 2.0.
 
-PATIENT CLINICAL PROFILE:
-- Diagnosis Code: ${taxonomyInfo.code} (${taxonomyInfo.description})
-- Surgical Date: ${patientData.surgery_date || 'N/A'}
-- Current Rehab Phase: Phase ${patientData.current_rehab_phase || 1}
-- Affected Limb: ${patientData.affected_side || 'Right'}
+PATIENT PROFILE:
+- Code: ${taxonomyInfo.code} (${taxonomyInfo.description})
+- Rehab Phase: Phase ${patientData.current_rehab_phase || 1}
+- LSI: ${recentSessions.mean_lsi || 85}%
+- Readiness: ${patientData.average_readiness || 82}/100
 
-OBJECTIVE BIOMECHANICAL TELEMETRY (Last 5 Sessions):
-- Mean Limb Symmetry Index (LSI): ${recentSessions.mean_lsi || 85}%
-- Mean Primary Range of Motion: ${recentSessions.mean_rom || 115}°
-- Common Form Flaws: ${JSON.stringify(recentSessions.frequent_flaws || ['Dynamic Valgus Wobble'])}
-- Daily Readiness Average: ${patientData.average_readiness || 82}/100
-
-TASK:
-1. Determine whether the patient is eligible to advance to the next rehabilitation phase based on criteria guidelines.
-2. Prescribe 3 suitable exercises with target sets, target reps, minimum/maximum allowable Range of Motion (ROM), and maximum allowable dynamic valgus threshold in degrees.
-3. Highlight any motion constraints, compensatory patterns, and contraindications.
-
-Output your response strictly as valid JSON matching this schema:
+Output JSON matching schema:
 {
   "phase_advancement_approved": boolean,
   "clinical_rationale": "string",
@@ -159,7 +147,7 @@ Output your response strictly as valid JSON matching this schema:
         }
       }
     } catch (err) {
-      console.warn("Gemini Protocol Drafting warning, using clinical fallback:", err);
+      console.warn("Gemini Protocol Drafting fallback:", err);
     }
   }
 
@@ -168,8 +156,8 @@ Output your response strictly as valid JSON matching this schema:
   return {
     phase_advancement_approved: approved,
     clinical_rationale: approved
-      ? `Patient satisfies criteria clearance for Phase ${patientData.current_rehab_phase || 1} with ${recentSessions.mean_lsi || 88}% LSI and optimal valgus control.`
-      : `Patient requires additional quadriceps hypertrophy and dynamic valgus reduction before Phase ${patientData.current_rehab_phase + 1 || 2} clearance.`,
+      ? `Patient satisfies criteria clearance for Phase ${patientData.current_rehab_phase || 1} with ${recentSessions.mean_lsi || 88}% LSI.`
+      : `Patient requires additional quadriceps hypertrophy before Phase ${patientData.current_rehab_phase + 1 || 2} clearance.`,
     prescriptions: [
       {
         exercise_name: "Barbell Back Squat (Box Depth)",
@@ -188,71 +176,71 @@ Output your response strictly as valid JSON matching this schema:
         max_rom_degrees: 100,
         max_valgus_angle_allowed: 3.5,
         clinical_notes: "Emphasize eccentric control (3-second tempo down)."
-      },
-      {
-        exercise_name: "Terminal Knee Extension (TKE) Banded Holds",
-        target_sets: 3,
-        target_reps: 15,
-        min_rom_degrees: 0,
-        max_rom_degrees: 30,
-        max_valgus_angle_allowed: 2.0,
-        clinical_notes: "VMO isometric contraction at 0° terminal extension."
       }
     ]
   };
 };
 
 /**
- * Strictly Grounded Workout Telemetry Session Analysis
+ * Analyzes rep-level kinematic telemetry to generate fatigue, ROM, and form reports.
+ * @param {Array} telemetryLog - Array of rep records collected by MediaPipePoseTracker
+ * @param {string} athleteName - Name or ID of the athlete
  */
 export async function analyzeWorkoutSession(telemetryLog, athleteName = 'Athlete') {
-  if (!Array.isArray(telemetryLog) || telemetryLog.length === 0) {
+  if (!telemetryLog || telemetryLog.length === 0) {
     return {
-      success: false,
-      summaryMarkdown: 'No valid repetition telemetry was detected. Please perform complete repetitions within camera frame.',
-      stats: { totalReps: 0, avgDuration: 0, fatigueIndexPct: 0, faultFrequency: {} },
+      success: true,
+      summaryMarkdown: 'No repetitions detected during this session.',
+      stats: { totalReps: 0, avgDuration: 0, fatigueIndexPct: 0, faultFrequency: {} }
     };
   }
 
   const totalReps = telemetryLog.length;
-  const durations = telemetryLog.map((r) => r.durationMs || 2000);
+  const exerciseName = telemetryLog[0]?.exerciseId || 'Workout';
+  const durations = telemetryLog.map((r) => r.durationMs || r.durationSec * 1000 || 2000);
   const avgDuration = Math.round(durations.reduce((a, b) => a + b, 0) / totalReps);
-
+  
   const windowSize = Math.max(1, Math.floor(totalReps * 0.3));
   const startAvg = durations.slice(0, windowSize).reduce((a, b) => a + b, 0) / windowSize;
   const endAvg = durations.slice(-windowSize).reduce((a, b) => a + b, 0) / windowSize;
   const fatigueIndexPct = Math.round(((endAvg - startAvg) / Math.max(1, startAvg)) * 100);
 
-  const faultFrequency = telemetryLog
-    .flatMap((r) => r.formFaults || [])
-    .reduce((acc, f) => { acc[f] = (acc[f] || 0) + 1; return acc; }, {});
-
-  const payload = {
-    totalReps,
-    avgTempoMs: avgDuration,
-    fatigueVelocitySlowdownPercent: fatigueIndexPct,
-    recordedFaults: faultFrequency,
-    reps: telemetryLog.map((r) => ({
-      rep: r.repNumber,
-      durationMs: r.durationMs,
-      peakAngle: r.peakAngle,
-      faults: r.formFaults,
-    })),
-  };
+  const allFaults = telemetryLog.flatMap((r) => r.formFaults || r.faults || []);
+  const faultFrequency = allFaults.reduce((acc, fault) => {
+    if (fault) acc[fault] = (acc[fault] || 0) + 1;
+    return acc;
+  }, {});
 
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+
+  const telemetryPayload = {
+    athleteName,
+    exercise: exerciseName,
+    totalReps,
+    averageTempoMs: avgDuration,
+    fatigueVelocitySlowdownPercent: fatigueIndexPct,
+    recordedFaults: faultFrequency,
+    repBreakdown: telemetryLog.map((r) => ({
+      rep: r.repNumber || r.repIndex,
+      durationMs: r.durationMs || 2000,
+      peakAngle: r.peakAngle || r.peakRom || 90,
+      faults: r.formFaults || []
+    }))
+  };
+
   const prompt = `
-CRITICAL INSTRUCTION: You must strictly base your evaluation ONLY on the provided JSON telemetry below. Do NOT assume or invent any exercises, sets, or flaws not documented in this data.
+You are an expert biomechanics analyst and sports physical therapist.
+Analyze the following workout telemetry generated by a real-time MediaPipe computer vision tracker:
 
-Athlete: ${athleteName}
-Telemetry:
-${JSON.stringify(payload, null, 2)}
+${JSON.stringify(telemetryPayload, null, 2)}
 
-Provide a clinical analysis:
-1. Pacing & Rep Count Consistency (Reference actual ms durations)
-2. Range of Motion Analysis (Evaluate the peak angles achieved)
-3. Fatigue & Velocity Drop-off (Reference the +${fatigueIndexPct}% tempo change)
-4. Correction of Detected Faults (Only address: ${Object.keys(faultFrequency).join(', ') || 'No faults recorded'})
+Provide a structured, clinical-yet-actionable analysis for ${athleteName}:
+1. **Performance Summary**: Rep count, consistency, and pacing.
+2. **Kinematic & ROM Quality**: Range of motion evaluation based on the peak angles achieved.
+3. **Fatigue & Mechanical Breakdown**: Assess whether tempo slowed significantly towards later reps (Slowdown: ${fatigueIndexPct}%).
+4. **Targeted Form Corrections**: Prioritize specific cues based on the logged faults.
+5. **Readiness / Recovery Recommendation**: A clear directive for rest, load management, or progression.
+Keep the tone direct, professional, and data-backed.
 `;
 
   if (apiKey && apiKey.length > 5) {
@@ -262,43 +250,58 @@ Provide a clinical analysis:
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
-          })
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
         }
       );
 
       if (response.ok) {
         const data = await response.json();
-        const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (responseText) {
+        const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (textOutput) {
           return {
             success: true,
-            summaryMarkdown: responseText,
-            stats: { totalReps, avgDuration, fatigueIndexPct, faultFrequency }
+            summaryMarkdown: textOutput,
+            stats: {
+              totalReps,
+              avgDuration,
+              fatigueIndexPct,
+              faultFrequency
+            }
           };
         }
       }
     } catch (err) {
-      console.warn("Gemini API REST error, using clinical fallback:", err);
+      console.warn("Gemini Workout Session Analysis fallback:", err);
     }
   }
 
-  // Grounded Fallback Markdown
+  // Clinical Rule-Based Fallback
   const fallbackMarkdown = `
-### 📊 Empirical Biomechanical Report for ${athleteName}
-- **Total Verified Repetitions**: ${totalReps}
-- **Average Time Under Tension**: ${(avgDuration / 1000).toFixed(1)}s
-- **Concentric Velocity Slowdown**: +${fatigueIndexPct}%
+### 📊 Biomechanical Session Analysis
 
-### 🎯 Form & Movement Evaluation
-${fatigueIndexPct > 20 ? '⚠️ Concentric tempo slowed during later reps, indicating local muscular fatigue.' : '✅ Repetition tempo remained steady throughout the set.'}
-${Object.keys(faultFrequency).length > 0 ? `⚠️ Logged Form Flaws: ${Object.entries(faultFrequency).map(([f, c]) => `${f} (${c}x)`).join(', ')}.` : '✅ Clean execution with zero form flaws recorded.'}
+- **Total Repetitions Completed**: ${totalReps} reps
+- **Average Rep Tempo**: ${(avgDuration / 1000).toFixed(1)}s per rep
+- **Concentric Fatigue Slowdown**: ${fatigueIndexPct > 20 ? `+${fatigueIndexPct}% (Muscular Fatigue Detected)` : `${fatigueIndexPct}% (Pacing Stable)`}
+
+#### 🎯 Form & Kinematic Feedback
+${Object.keys(faultFrequency).length > 0 
+  ? Object.entries(faultFrequency).map(([f, count]) => `- **${f}**: Detected in ${count} rep(s).`).join('\n')
+  : '- **Clean Execution**: No compensatory form faults or valgus collapses logged.'}
+
+#### 💡 Recovery & Next Steps
+${fatigueIndexPct > 25 
+  ? 'High concentric slowdown detected across final reps. Recommend 48 hours rest for muscle recovery.' 
+  : 'Movement quality met therapeutic targets. Continue current loading progression under clinician supervision.'}
 `;
 
   return {
     success: true,
-    summaryMarkdown: fallbackMarkdown,
-    stats: { totalReps, avgDuration, fatigueIndexPct, faultFrequency },
+    summaryMarkdown: fallbackMarkdown.trim(),
+    stats: {
+      totalReps,
+      avgDuration,
+      fatigueIndexPct,
+      faultFrequency
+    }
   };
 }

@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS public.daily_readiness_logs (
   UNIQUE(patient_id, log_date)
 );
 
--- 8. Athlete Rep-Level Workout Telemetry Sessions
+-- 8. Athlete AI Workout Sessions Analytics
 CREATE TABLE IF NOT EXISTS public.athlete_workout_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     athlete_id TEXT NOT NULL,
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS public.athlete_workout_sessions (
     fault_summary JSONB DEFAULT '{}'::jsonb,
     raw_telemetry JSONB DEFAULT '[]'::jsonb,
     ai_summary_markdown TEXT,
-    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Indexing & Concurrency Optimizations
@@ -125,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_patient_time ON public.rehabilitation_se
 CREATE INDEX IF NOT EXISTS idx_readiness_patient_date ON public.daily_readiness_logs(patient_id, log_date DESC);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_patient ON public.rehabilitation_prescriptions(patient_id) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_telemetry_playback ON public.session_telemetry_frames(session_id, timestamp_offset_ms ASC);
-CREATE INDEX IF NOT EXISTS idx_workout_sessions_athlete_id ON public.athlete_workout_sessions (athlete_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workout_sessions_athlete_id ON public.athlete_workout_sessions(athlete_id, created_at DESC);
 
 -- Row-Level Security
 ALTER TABLE public.patient_profiles ENABLE ROW LEVEL SECURITY;

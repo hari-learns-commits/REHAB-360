@@ -6,7 +6,7 @@
  * 2. Exponential Moving Average (EMA) Low-Pass Filter for Optical Jitter Suppression
  * 3. Granular Hand, Palm, and 21 Finger Joint Landmark Analytics
  * 4. Clinical Compensatory Fault Detection & Motion Phase State Machine
- * 5. Dynamic ExerciseRepTracker Hysteresis Engine
+ * 5. Stateful Rep Counter with Hysteresis (ExerciseRepTracker)
  */
 
 /**
@@ -95,42 +95,53 @@ export const calculateHandMetrics = (handLandmarks) => {
 
   const thumbTip = handLandmarks[4];
   const indexTip = handLandmarks[8];
-
   const dx = thumbTip.x - indexTip.x;
   const dy = thumbTip.y - indexTip.y;
-  const dz = (thumbTip.z || 0) - (indexTip.z || 0);
-  const pinchDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const pinchDistance = Number(Math.sqrt(dx * dx + dy * dy).toFixed(3));
 
   let gripState = 'Open Palm';
-  if (pinchDistance < 0.04) {
+  if (pinchDistance < 0.045) {
     gripState = 'Pinch Grip';
-  } else if (pinchDistance < 0.08) {
-    gripState = 'Closed Fist';
+  } else {
+    const wrist = handLandmarks[0];
+    const middleMCP = handLandmarks[9];
+    const middleTip = handLandmarks[12];
+    const dWristMCP = Math.sqrt(Math.pow(middleMCP.x - wrist.x, 2) + Math.pow(middleMCP.y - wrist.y, 2));
+    const dTipMCP = Math.sqrt(Math.pow(middleTip.x - middleMCP.x, 2) + Math.pow(middleTip.y - middleMCP.y, 2));
+    if (dTipMCP < dWristMCP * 0.45) {
+      gripState = 'Closed Fist';
+    }
   }
 
-  return { pinchDistance: Number(pinchDistance.toFixed(3)), gripState, fingerExtensionRatio: 0.85 };
+  return { pinchDistance, gripState, fingerExtensionRatio: pinchDistance > 0.08 ? 0.9 : 0.4 };
 };
 
-export const applyEMAFilter = (currentVal, prevEMA, alpha = 0.35) => {
-  if (prevEMA === null || prevEMA === undefined) return currentVal;
-  return alpha * currentVal + (1.0 - alpha) * prevEMA;
+export const applyEMAFilter = (currentVal, prevEMARef, alpha = 0.35) => {
+  if (prevEMARef.current === null || prevEMARef.current === undefined) {
+    prevEMARef.current = currentVal;
+    return currentVal;
+  }
+  const smoothed = alpha * currentVal + (1 - alpha) * prevEMARef.current;
+  prevEMARef.current = smoothed;
+  return Number(smoothed.toFixed(1));
 };
 
-export const calculateValgusDeviation = (leftKnee, rightKnee, leftAnkle, rightAnkle) => {
-  if (!leftKnee || !rightKnee || !leftAnkle || !rightAnkle) return 2.1;
-  const kneeDist = Math.abs(leftKnee.x - rightKnee.x);
-  const ankleDist = Math.abs(leftAnkle.x - rightAnkle.x);
-  if (ankleDist === 0) return 2.1;
-  const ratio = (ankleDist - kneeDist) / ankleDist;
-  const valgusDeg = Math.max(0, ratio * 28.0);
-  return Number(valgusDeg.toFixed(1));
+export const calculateValgusDeviation = (hip, knee, ankle) => {
+  if (!hip || !knee || !ankle) return 2.0;
+  const num = Math.abs((ankle.x - hip.x) * (hip.y - knee.y) - (hip.x - knee.x) * (ankle.y - hip.y));
+  const den = Math.sqrt(Math.pow(ankle.x - hip.x, 2) + Math.pow(ankle.y - hip.y, 2));
+  if (den === 0) return 2.0;
+
+  const valgusVal = (num / den) * 100;
+  return Number(Math.min(9.9, Math.max(0.4, valgusVal)).toFixed(1));
 };
 
 export const evaluateCompensatoryFaults = (landmarks, leftKneeAngle, rightKneeAngle, valgusOffset) => {
   const flags = [];
   let safetyStatus = 'safe';
+
   if (!landmarks || landmarks.length < 33) {
-    return { safetyStatus, flags, feedback: 'Position body & hands in view to track arms, palms and fingers' };
+    return { safetyStatus: 'safe', flags: [], feedback: 'Position body clearly within camera view' };
   }
 
   const angleDiff = Math.abs(leftKneeAngle - rightKneeAngle);
@@ -144,11 +155,25 @@ export const evaluateCompensatoryFaults = (landmarks, leftKneeAngle, rightKneeAn
     safetyStatus = 'unsafe';
   }
 
+  const leftShoulder = landmarks[11];
+  const leftHip = landmarks[23];
+  if (leftShoulder && leftHip) {
+    const torsoDy = leftHip.y - leftShoulder.y;
+    const torsoDx = Math.abs(leftHip.x - leftShoulder.x);
+    const torsoLeanDeg = (Math.atan2(torsoDx, torsoDy) * 180.0) / Math.PI;
+    if (torsoLeanDeg > 35) {
+      flags.push('excessive_torso_lean');
+      if (safetyStatus !== 'unsafe') safetyStatus = 'caution';
+    }
+  }
+
   let feedback = 'Good biomechanical alignment! Tracking arms, palms & fingers live.';
   if (flags.includes('knee_valgus')) {
     feedback = '⚠️ CAUTION: Knee caving inward (Valgus)! Push knees outward over 2nd toe.';
   } else if (flags.includes('asymmetrical_loading')) {
     feedback = '⚠️ WARNING: Shifting weight to one side! Equalize pressure on both feet.';
+  } else if (flags.includes('excessive_torso_lean')) {
+    feedback = '💡 Form Note: Keep chest lifted to prevent excessive forward torso lean.';
   }
 
   return { safetyStatus, flags, feedback };
@@ -172,6 +197,12 @@ export const detectExercisePhase = (currentAngle, prevAngle, currentPhase) => {
       repIncrement = true;
     }
     phase = 'standing';
+  } else {
+    if (delta < -1.5) {
+      phase = 'eccentric';
+    } else if (delta > 1.5) {
+      phase = 'concentric';
+    }
   }
 
   return { phase, repIncrement };
@@ -182,10 +213,16 @@ export const detectExercisePhase = (currentAngle, prevAngle, currentPhase) => {
  */
 export class ExerciseRepTracker {
   constructor(config) {
-    this.name = config?.name || 'Squat';
-    this.minAngle = config?.minAngle || 90;
-    this.maxAngle = config?.maxAngle || 160;
-    this.jointTriplet = config?.jointTriplet || [23, 25, 27];
+    this.name = config.name || config.id;
+    this.thresholds = config.thresholds || {
+      neutralAngle: 165,
+      inflectionAngle: 95,
+      direction: 'decreasing',
+      minRepDurationMs: 800,
+      maxRepDurationMs: 6000
+    };
+    this.primaryJoints = config.primaryJoints || { left: [23, 25, 27], right: [24, 26, 28] };
+    this.formChecks = config.formChecks || [];
     
     this.stage = 'up';
     this.repCount = 0;
@@ -197,15 +234,20 @@ export class ExerciseRepTracker {
   }
 
   processFrame(landmarks, timestamp = Date.now()) {
-    if (!landmarks || landmarks.length <= Math.max(...this.jointTriplet)) {
+    if (!landmarks || landmarks.length < 33) {
       return { repCount: this.repCount, stage: this.stage, status: 'low_visibility' };
     }
 
-    const p1 = landmarks[this.jointTriplet[0]];
-    const p2 = landmarks[this.jointTriplet[1]];
-    const p3 = landmarks[this.jointTriplet[2]];
+    const leftConf = ((landmarks[this.primaryJoints.left[0]]?.visibility || 0.8) + (landmarks[this.primaryJoints.left[1]]?.visibility || 0.8)) / 2;
+    const rightConf = ((landmarks[this.primaryJoints.right[0]]?.visibility || 0.8) + (landmarks[this.primaryJoints.right[1]]?.visibility || 0.8)) / 2;
+    const targetJoints = leftConf >= rightConf ? this.primaryJoints.left : this.primaryJoints.right;
+    const activeSide = leftConf >= rightConf ? 'left' : 'right';
 
-    if ((p1.visibility && p1.visibility < 0.6) || (p2.visibility && p2.visibility < 0.6) || (p3.visibility && p3.visibility < 0.6)) {
+    const p1 = landmarks[targetJoints[0]];
+    const p2 = landmarks[targetJoints[1]];
+    const p3 = landmarks[targetJoints[2]];
+
+    if (!p1 || !p2 || !p3 || (p1.visibility < 0.5 && p2.visibility < 0.5)) {
       return { repCount: this.repCount, stage: this.stage, status: 'low_visibility' };
     }
 
@@ -213,38 +255,72 @@ export class ExerciseRepTracker {
     this.minAngleReached = Math.min(this.minAngleReached, currentAngle);
     this.maxAngleReached = Math.max(this.maxAngleReached, currentAngle);
 
-    if (currentAngle < this.minAngle && this.stage === 'up') {
-      this.stage = 'down';
-      this.currentRepStartTime = timestamp;
+    const isDecreasing = this.thresholds.direction === 'decreasing';
+
+    // Evaluate Form Faults
+    let faultDetected = null;
+    for (const check of this.formChecks) {
+      if (check.check && !check.check(landmarks, activeSide)) {
+        faultDetected = check.faultMessage;
+        break;
+      }
     }
 
-    if (currentAngle > this.maxAngle && this.stage === 'down') {
-      this.stage = 'up';
-      this.repCount += 1;
-      
-      const durationSec = (timestamp - (this.currentRepStartTime || timestamp)) / 1000;
-      this.repDurations.push(durationSec);
+    // State Machine Transitions
+    if (this.stage === 'up') {
+      const reachedInflection = isDecreasing
+        ? currentAngle <= this.thresholds.inflectionAngle
+        : currentAngle >= this.thresholds.inflectionAngle;
 
-      const peakDepth = this.minAngleReached;
-      this.minAngleReached = 180;
-      this.maxAngleReached = 0;
+      if (reachedInflection) {
+        this.stage = 'down';
+        this.currentRepStartTime = timestamp;
+      }
+    }
 
-      return {
-        repCount: this.repCount,
-        stage: this.stage,
-        repCompleted: true,
-        metrics: {
-          durationSec,
-          peakAngle: peakDepth,
-          currentAngle
+    if (this.stage === 'down') {
+      const returnedToNeutral = isDecreasing
+        ? currentAngle >= this.thresholds.neutralAngle
+        : currentAngle <= this.thresholds.neutralAngle;
+
+      if (returnedToNeutral) {
+        const durationMs = timestamp - (this.currentRepStartTime || timestamp);
+
+        if (durationMs >= this.thresholds.minRepDurationMs && durationMs <= this.thresholds.maxRepDurationMs) {
+          this.repCount += 1;
+          const durationSec = Number((durationMs / 1000).toFixed(2));
+          this.repDurations.push(durationSec);
+
+          const peakAngle = isDecreasing ? this.minAngleReached : this.maxAngleReached;
+          this.minAngleReached = 180;
+          this.maxAngleReached = 0;
+          this.stage = 'up';
+
+          return {
+            repCount: this.repCount,
+            stage: this.stage,
+            repCompleted: true,
+            faultDetected,
+            metrics: {
+              durationSec,
+              durationMs,
+              peakAngle,
+              currentAngle
+            }
+          };
         }
-      };
+
+        this.stage = 'up';
+        this.minAngleReached = 180;
+        this.maxAngleReached = 0;
+      }
     }
 
     return {
       repCount: this.repCount,
       stage: this.stage,
       currentAngle,
+      faultDetected,
       repCompleted: false
     };
   }

@@ -1,10 +1,9 @@
-/**
- * Dynamic Exercise Registry Schema for Rehab360 AI
- * MediaPipe Landmark Index Reference:
- * 11: left_shoulder, 12: right_shoulder, 13: left_elbow, 14: right_elbow
- * 15: left_wrist,    16: right_wrist,    23: left_hip,   24: right_hip
- * 25: left_knee,     26: right_knee,     27: left_ankle, 28: right_ankle
- */
+// src/data/exerciseRegistry.js
+
+// MediaPipe Landmark Index Reference:
+// 11: left_shoulder, 12: right_shoulder, 13: left_elbow, 14: right_elbow
+// 15: left_wrist,    16: right_wrist,    23: left_hip,   24: right_hip
+// 25: left_knee,     26: right_knee,     27: left_ankle, 28: right_ankle
 
 export const EXERCISE_REGISTRY = {
   squat: {
@@ -63,11 +62,11 @@ export const EXERCISE_REGISTRY = {
         type: 'relative_position',
         description: 'Elbow swinging forward (using front deltoid momentum)',
         check: (landmarks, side = 'left') => {
-          const shoulderIdx = side === 'left' ? 11 : 12;
-          const elbowIdx = side === 'left' ? 13 : 14;
-          if (!landmarks[shoulderIdx] || !landmarks[elbowIdx]) return true;
-          const shoulder = landmarks[shoulderIdx];
-          const elbow = landmarks[elbowIdx];
+          const shIdx = side === 'left' ? 11 : 12;
+          const elIdx = side === 'left' ? 13 : 14;
+          if (!landmarks[shIdx] || !landmarks[elIdx]) return true;
+          const shoulder = landmarks[shIdx];
+          const elbow = landmarks[elIdx];
           return Math.abs(elbow.x - shoulder.x) < 0.12;
         },
         faultMessage: 'Pin your elbows to your sides; eliminate swinging momentum.'
@@ -108,7 +107,7 @@ export const EXERCISE_REGISTRY = {
 
   pushup: {
     id: 'pushup',
-    name: 'Push-up',
+    name: 'Push-ups',
     category: 'upper_body',
     primaryJoints: {
       left: [11, 13, 15],  // Shoulder -> Elbow -> Wrist
@@ -125,19 +124,23 @@ export const EXERCISE_REGISTRY = {
       {
         id: 'hip_sag',
         type: 'trunk_alignment',
-        description: 'Sagging hips / lumbar hyperextension',
+        description: 'Sagging hips or lumbar hyperextension',
         check: (landmarks) => {
-          if (!landmarks[11] || !landmarks[23] || !landmarks[27]) return true;
-          return true; // Form check validation
+          if (!landmarks[11] || !landmarks[23] || !landmarks[25]) return true;
+          const sh = landmarks[11];
+          const hp = landmarks[23];
+          const kn = landmarks[25];
+          const sagDev = Math.abs(hp.y - ((sh.y + kn.y) / 2));
+          return sagDev < 0.10;
         },
-        faultMessage: 'Keep your body in a straight plank; do not sag your hips.'
+        faultMessage: 'Keep hips aligned with shoulders; avoid hip sag.'
       }
     ]
   },
 
   lunge: {
     id: 'lunge',
-    name: 'Forward Lunge',
+    name: 'Forward / Reverse Lunges',
     category: 'lower_body',
     primaryJoints: {
       left: [23, 25, 27],  // Hip -> Knee -> Ankle
@@ -152,16 +155,16 @@ export const EXERCISE_REGISTRY = {
     },
     formChecks: [
       {
-        id: 'knee_over_toes',
-        type: 'tracking',
-        description: 'Lead knee tracking far past toes',
+        id: 'knee_over_toe',
+        type: 'knee_tracking',
+        description: 'Front knee pushing past toes',
         check: (landmarks, side = 'left') => {
-          const kneeIdx = side === 'left' ? 25 : 26;
-          const ankleIdx = side === 'left' ? 27 : 28;
-          if (!landmarks[kneeIdx] || !landmarks[ankleIdx]) return true;
-          return Math.abs(landmarks[kneeIdx].x - landmarks[ankleIdx].x) < 0.18;
+          const knIdx = side === 'left' ? 25 : 26;
+          const ankIdx = side === 'left' ? 27 : 28;
+          if (!landmarks[knIdx] || !landmarks[ankIdx]) return true;
+          return Math.abs(landmarks[knIdx].x - landmarks[ankIdx].x) < 0.12;
         },
-        faultMessage: 'Keep your lead knee tracking over your foot, not sliding forward.'
+        faultMessage: 'Keep front knee behind toes during descent.'
       }
     ]
   }

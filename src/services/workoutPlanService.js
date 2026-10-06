@@ -1,5 +1,5 @@
-// Doctor-Directed Workout Plan Service
-// Handles storage and management of workout plans created by Doctors for Athletes.
+// Doctor-Directed Workout Plan Service & Athlete Telemetry Persistence
+// Handles storage and management of workout plans and telemetry sessions.
 
 const DEFAULT_DOCTOR_PLANS = {
   "ATH-202": {
@@ -7,7 +7,7 @@ const DEFAULT_DOCTOR_PLANS = {
     athleteName: "Alex Morgan",
     doctorId: "DOC-101",
     doctorName: "Dr. Valli",
-    injuryId: "KNEE_001",
+    injuryId: "KJAC",
     phase: "Phase 2 - Controlled Neuromuscular & Quadriceps Loading",
     prescribedDate: new Date().toISOString(),
     clinicalNotes: "Patient exhibits solid static balance. Focus this week on maintaining heel weight during squats and controlled knee alignment. Do not allow knee valgus past 5 degrees.",
@@ -35,14 +35,6 @@ const DEFAULT_DOCTOR_PLANS = {
         targetJointAngle: "Slight knee bend 20°",
         instructions: "Keep tension on resistance band throughout motion.",
         completed: false
-      },
-      {
-        id: "ex-4",
-        title: "Terminal Knee Extension (TKE)",
-        reps: "3 sets x 15 reps",
-        targetJointAngle: "0° Full extension",
-        instructions: "Squeeze VMO muscle at full extension point for 2 seconds.",
-        completed: false
       }
     ]
   },
@@ -51,7 +43,7 @@ const DEFAULT_DOCTOR_PLANS = {
     athleteName: "Nidheesh S",
     doctorId: "DOC-101",
     doctorName: "Dr. Valli",
-    injuryId: "THIGH_001",
+    injuryId: "KJMT",
     phase: "Phase 3 - Eccentric Hamstring Lengthening & Speed Prep",
     prescribedDate: new Date().toISOString(),
     clinicalNotes: "Hamstring tear scar tissue resolving nicely. Progressing to Nordic eccentric strength and high-speed motor control.",
@@ -63,27 +55,14 @@ const DEFAULT_DOCTOR_PLANS = {
         targetJointAngle: "Controlled hip-knee extension",
         instructions: "Resist fall using hamstrings as long as possible.",
         completed: false
-      },
-      {
-        id: "ex-302",
-        title: "Single Leg Romanian Deadlift",
-        reps: "3 sets x 10 reps",
-        targetJointAngle: "Hip hinge 80°",
-        instructions: "Maintain neutral spine and feel stretch in hamstrings.",
-        completed: false
-      },
-      {
-        id: "ex-303",
-        title: "Prone Hamstring Curls",
-        reps: "3 sets x 12 reps",
-        targetJointAngle: "Knee flexion 0 to 110°",
-        instructions: "Slow 3-second eccentric release on down stroke.",
-        completed: false
       }
     ]
   }
 };
 
+/**
+ * Get active doctor-prescribed workout plan for an athlete
+ */
 export const getAthleteWorkoutPlan = (athleteId) => {
   try {
     const customPlans = JSON.parse(localStorage.getItem('rehab360_doctor_plans') || '{}');
@@ -102,6 +81,9 @@ export const getAthleteWorkoutPlan = (athleteId) => {
   };
 };
 
+/**
+ * Save or update a workout plan drafted by a Doctor
+ */
 export const saveDoctorWorkoutPlan = (plan) => {
   try {
     const customPlans = JSON.parse(localStorage.getItem('rehab360_doctor_plans') || '{}');
@@ -126,28 +108,28 @@ export async function saveWorkoutSessionRecord({
   telemetryLog = [],
   report = {}
 }) {
-  const payload = {
-    id: `sess-${Date.now()}`,
+  const record = {
+    id: `session-${Date.now()}`,
     athlete_id: athleteId,
     exercise_id: exerciseId,
-    total_reps: report?.stats?.totalReps || telemetryLog.length || 0,
-    avg_tempo_ms: report?.stats?.avgDuration || 2500,
-    fatigue_index_pct: report?.stats?.fatigueIndexPct || 12,
-    fault_summary: report?.stats?.faultFrequency || {},
+    total_reps: report.stats?.totalReps || telemetryLog.length,
+    avg_tempo_ms: report.stats?.avgDuration || 2000,
+    fatigue_index_pct: report.stats?.fatigueIndexPct || 0,
+    fault_summary: report.stats?.faultFrequency || {},
     raw_telemetry: telemetryLog,
-    ai_summary_markdown: report?.summaryMarkdown || 'Session recorded cleanly.',
+    ai_summary_markdown: report.summaryMarkdown || '',
     created_at: new Date().toISOString()
   };
 
   try {
-    const existing = JSON.parse(localStorage.getItem('rehab360_session_records') || '[]');
-    existing.unshift(payload);
-    localStorage.setItem('rehab360_session_records', JSON.stringify(existing));
+    const existing = JSON.parse(localStorage.getItem('rehab360_athlete_sessions') || '[]');
+    existing.unshift(record);
+    localStorage.setItem('rehab360_athlete_sessions', JSON.stringify(existing));
   } catch (e) {
-    console.warn("Failed to store session in localStorage:", e);
+    console.warn("Could not save to localStorage:", e);
   }
 
-  return payload;
+  return record;
 }
 
 /**
@@ -155,23 +137,23 @@ export async function saveWorkoutSessionRecord({
  */
 export async function getAthleteWorkoutHistory(athleteId = 'ATH-202') {
   try {
-    const existing = JSON.parse(localStorage.getItem('rehab360_session_records') || '[]');
-    const filtered = existing.filter(s => s.athlete_id === athleteId || !athleteId);
+    const stored = JSON.parse(localStorage.getItem('rehab360_athlete_sessions') || '[]');
+    const filtered = stored.filter(s => s.athlete_id === athleteId || athleteId === 'all');
     if (filtered.length > 0) return filtered;
   } catch (e) {}
 
-  // Sample default session
+  // Initial Seed Record if empty
   return [
     {
-      id: 'sess-default-101',
+      id: 'sess-demo-01',
       athlete_id: athleteId,
       exercise_id: 'squat',
       total_reps: 8,
-      avg_tempo_ms: 2800,
+      avg_tempo_ms: 2400,
       fatigue_index_pct: 18,
       fault_summary: { 'Knee Valgus Wobble': 2 },
-      ai_summary_markdown: '### 📊 Session Summary\n8 Bodyweight Squats completed with 88% average LSI. Mild concentric slowdown (+18%) observed in final reps.',
-      created_at: new Date(Date.now() - 3600000).toISOString()
+      ai_summary_markdown: '### 📊 Session Summary\n- **Total Reps**: 8 reps\n- **Kinematics**: Stable range of motion peaked at 92° depth.\n- **Fatigue**: Minor +18% slowdown on final 2 reps.',
+      created_at: new Date(Date.now() - 3600000 * 24).toISOString()
     }
   ];
 }
