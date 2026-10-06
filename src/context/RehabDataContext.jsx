@@ -216,6 +216,7 @@ export const RehabDataProvider = ({ children }) => {
       const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
       try {
         localStorage.setItem('rehab360_shared_state', JSON.stringify(next));
+        window.dispatchEvent(new Event('storage'));
       } catch (e) {
         console.error("Storage save failed:", e);
       }

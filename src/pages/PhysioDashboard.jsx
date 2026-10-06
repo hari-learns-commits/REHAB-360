@@ -28,6 +28,7 @@ const PhysioDashboard = () => {
     workoutPlan,
     updateWorkoutPlan,
     workoutLogs,
+    messages,
     sendMessage,
     addVideoAnnotation,
     videoAnnotations,
@@ -597,7 +598,51 @@ const PhysioDashboard = () => {
         {activeTab === 'timeline' && <UnifiedTimeline />}
 
         {/* TAB 6: MESSAGING */}
-        {activeTab === 'messaging' && <WhatsAppChat activeRole="physio" athleteName="Alex Morgan" doctorName="Dr. Valli" />}
+        {activeTab === 'messaging' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <WhatsAppChat
+                currentUser={{
+                  ...currentUser,
+                  role: 'physio',
+                  name: currentUser?.name || "Dr. Sarah Jenkins, PT"
+                }}
+                recipient={{
+                  name: "Alex Morgan",
+                  role: "ACL Rehab Athlete (ATH-202)",
+                  status: "Online • Active Now",
+                  avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=AlexMorgan&backgroundColor=ffd5dc"
+                }}
+                messages={messages}
+                onSendMessage={(text) => sendMessage(text, 'physio', currentUser?.name || 'Dr. Sarah Jenkins, PT')}
+              />
+            </div>
+
+            <div className="glass-card" style={{ padding: '1.75rem', height: 'fit-content' }}>
+              <h3 className="text-base font-bold text-main mb-2">Clinical Direct Line Status</h3>
+              <p className="text-xs text-muted mb-4">Real-time synchronized message history with Alex Morgan</p>
+
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 flex flex-col gap-2">
+                <div className="flex justify-between">
+                  <span>Assigned Athlete:</span>
+                  <strong className="text-main">Alex Morgan</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Condition:</span>
+                  <strong className="text-main">ACL Reconstruction</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Active Phase:</span>
+                  <strong className="text-primary">Phase 2</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sync Status:</span>
+                  <strong className="text-green-600 font-bold">● Live Shared Context</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       </main>
 

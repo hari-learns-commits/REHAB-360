@@ -1,11 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, Smile, Phone, Video, MoreVertical, CheckCheck, Search } from 'lucide-react';
 
-const QUICK_SUGGESTIONS = [
+const ATHLETE_QUICK_SUGGESTIONS = [
   "How is my knee flexion form looking?",
   "Felt slight tightness during single-leg squats today.",
   "When is our next live video review?",
   "Logged today's workout video proof successfully!"
+];
+
+const PHYSIO_QUICK_SUGGESTIONS = [
+  "Great job on today's video proof! Form looks solid.",
+  "Please focus on keeping your knee aligned over your toes.",
+  "I've updated your workout plan for this week.",
+  "Let's schedule a 10-minute live video call to review flexion."
 ];
 
 const WhatsAppChat = ({
@@ -55,6 +62,7 @@ const WhatsAppChat = ({
   };
 
   const currentRole = currentUser?.role || 'athlete';
+  const quickSuggestions = currentRole === 'physio' ? PHYSIO_QUICK_SUGGESTIONS : ATHLETE_QUICK_SUGGESTIONS;
 
   return (
     <div
@@ -277,7 +285,7 @@ const WhatsAppChat = ({
       </div>
 
       {/* QUICK SUGGESTION PILLS */}
-      {showQuickReplies && currentRole === 'athlete' && (
+      {showQuickReplies && (
         <div
           className="no-scrollbar"
           style={{
@@ -290,7 +298,7 @@ const WhatsAppChat = ({
             whiteSpace: 'nowrap'
           }}
         >
-          {QUICK_SUGGESTIONS.map((suggestion, idx) => (
+          {quickSuggestions.map((suggestion, idx) => (
             <button
               key={idx}
               onClick={() => handleQuickReply(suggestion)}
