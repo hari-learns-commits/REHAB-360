@@ -734,10 +734,6 @@ const MediaPipePoseTracker = ({
                   <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981' }}>{handGripState}</span>
                 </div>
               </div>
-
-              <div style={{ background: '#fc4c02', color: '#ffffff', padding: '0.4rem 1rem', borderRadius: 'var(--radius-sm)', fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 4px 12px rgba(252, 76, 2, 0.3)' }}>
-                <span>Reps: {repsCount}</span>
-              </div>
             </div>
 
             {/* BOTTOM FEEDBACK BANNER */}

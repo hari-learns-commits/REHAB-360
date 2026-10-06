@@ -350,10 +350,6 @@ const PhysioDashboard = () => {
 
                     <div className="flex gap-4 text-right">
                       <div>
-                        <span className="text-xs text-muted block">Reps</span>
-                        <strong className="text-primary text-base font-bold">{sess.total_reps}</strong>
-                      </div>
-                      <div>
                         <span className="text-xs text-muted block">Fatigue Index</span>
                         <strong className="text-amber-600 text-base font-bold">+{sess.fatigue_index_pct}%</strong>
                       </div>
@@ -459,7 +455,6 @@ const PhysioDashboard = () => {
                                 <span>ROM: <strong className="text-main">{exProof.romDegrees}°</strong></span>
                                 <span>Symmetry: <strong className="text-main">{exProof.symmetryPercent}%</strong></span>
                                 <span>Valgus: <strong className="text-main">{exProof.valgusAngle}°</strong></span>
-                                <span>Reps: <strong className="text-main">{exProof.repsCompleted}</strong></span>
                               </div>
                             )}
                           </div>
