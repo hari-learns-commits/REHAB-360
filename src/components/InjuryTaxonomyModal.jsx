@@ -1,19 +1,23 @@
 import React, { useState } from 'react';
-import { INJURY_TAXONOMY, searchInjuries } from '../data/injuryTaxonomy';
-import { Search, X, BookOpen, Activity, AlertCircle, Award, Stethoscope, ChevronRight } from 'lucide-react';
+import { INJURY_TAXONOMIES } from '../data/injuryTaxonomyData';
+import { Search, X, BookOpen, Activity, AlertCircle, Award, Stethoscope } from 'lucide-react';
 
 const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('All');
-  const [activeInjury, setActiveInjury] = useState(INJURY_TAXONOMY[0]);
+  const [activeInjury, setActiveInjury] = useState(INJURY_TAXONOMIES[0]);
 
   if (!isOpen) return null;
 
-  const regions = ['All', ...new Set(INJURY_TAXONOMY.map(i => i.body_region))];
+  const regions = ['All', ...new Set(INJURY_TAXONOMIES.map(i => i.bodyRegion))];
 
-  const filtered = searchInjuries(searchTerm).filter(i => {
-    if (selectedRegion === 'All') return true;
-    return i.body_region === selectedRegion;
+  const filtered = INJURY_TAXONOMIES.filter(i => {
+    const matchesRegion = selectedRegion === 'All' || i.bodyRegion === selectedRegion;
+    const matchesSearch = !searchTerm || 
+      i.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      i.pathology.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      i.bodyRegion.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesRegion && matchesSearch;
   });
 
   return (
@@ -56,9 +60,9 @@ const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
               <BookOpen size={24} />
             </div>
             <div>
-              <h2 className="text-xl font-bold">Comprehensive Athletic Injury Taxonomy & ICD Database</h2>
+              <h2 className="text-xl font-bold">Standardized Clinical Injury Taxonomy (OSIICS v11 / OSICS v10)</h2>
               <p className="text-xs text-muted" style={{ color: '#94a3b8' }}>
-                Sports Medicine & Orthopedic Clinical Taxonomy ({INJURY_TAXONOMY.length} Categories)
+                IOC Approved Orthopedic & Sports Medicine Diagnostic Classification ({INJURY_TAXONOMIES.length} Primary Taxonomies)
               </p>
             </div>
           </div>
@@ -73,7 +77,7 @@ const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
             <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
             <input 
               type="text"
-              placeholder="Search by injury name, body region, tissue, or ICD code..."
+              placeholder="Search by OSIICS code (e.g. KJAC), body region, or pathology..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -110,7 +114,7 @@ const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
           </div>
         </div>
 
-        {/* Content Body: Sidebar list + Detail view */}
+        {/* Content Body */}
         <div className="grid grid-cols-1 md:grid-cols-3" style={{ flex: 1, overflow: 'hidden' }}>
           {/* List Sidebar */}
           <div style={{
@@ -126,29 +130,29 @@ const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
             ) : (
               filtered.map(inj => (
                 <div
-                  key={inj.id}
+                  key={inj.code}
                   onClick={() => setActiveInjury(inj)}
                   style={{
                     padding: '1rem 1.25rem',
                     borderBottom: '1px solid var(--border-color)',
                     cursor: 'pointer',
-                    background: activeInjury?.id === inj.id ? 'rgba(249, 115, 22, 0.08)' : 'transparent',
-                    borderLeft: activeInjury?.id === inj.id ? '4px solid var(--primary)' : '4px solid transparent',
+                    background: activeInjury?.code === inj.code ? 'rgba(249, 115, 22, 0.08)' : 'transparent',
+                    borderLeft: activeInjury?.code === inj.code ? '4px solid var(--primary)' : '4px solid transparent',
                     transition: 'all 0.2s'
                   }}
                 >
                   <div className="flex justify-between items-start mb-1">
-                    <h4 className="font-bold text-sm" style={{ color: activeInjury?.id === inj.id ? 'var(--primary-hover)' : 'var(--text-main)' }}>
-                      {inj.name}
+                    <h4 className="font-bold text-sm" style={{ color: activeInjury?.code === inj.code ? 'var(--primary-hover)' : 'var(--text-main)' }}>
+                      {inj.pathology}
                     </h4>
-                    <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '4px', background: '#e2e8f0', color: '#334155' }}>
-                      {inj.icd_codes['ICD-10']}
+                    <span style={{ fontSize: '0.7rem', fontWeight: 'bold', padding: '0.15rem 0.4rem', borderRadius: '4px', background: '#e2e8f0', color: '#1e293b' }}>
+                      {inj.code}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted">
-                    <span className="font-medium text-primary">{inj.body_region}</span>
+                    <span className="font-medium text-primary">{inj.bodyRegion}</span>
                     <span>•</span>
-                    <span>{inj.tissue_type}</span>
+                    <span>{inj.tissueType}</span>
                   </div>
                 </div>
               ))
@@ -164,18 +168,17 @@ const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
           }}>
             {activeInjury ? (
               <div className="flex flex-col gap-6">
-                {/* Title & Classification Banner */}
+                {/* Title Banner */}
                 <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', boxShadow: 'var(--card-shadow)' }}>
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="text-2xl font-bold" style={{ color: 'var(--text-main)' }}>{activeInjury.name}</h3>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-muted">
-                        <span className="font-semibold text-primary">{activeInjury.body_region}</span>
-                        <span>|</span>
-                        <span>Tissue: <strong>{activeInjury.tissue_type}</strong></span>
-                        <span>|</span>
-                        <span>Course: <strong>{activeInjury.acute_vs_chronic}</strong></span>
+                      <div className="flex items-center gap-2">
+                        <span style={{ background: 'var(--primary)', color: '#fff', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                          OSIICS {activeInjury.code}
+                        </span>
+                        <h3 className="text-xl font-bold" style={{ color: 'var(--text-main)' }}>{activeInjury.pathology}</h3>
                       </div>
+                      <p className="text-xs text-muted mt-2">{activeInjury.description}</p>
                     </div>
                     {onSelectInjury && (
                       <button 
@@ -183,81 +186,44 @@ const InjuryTaxonomyModal = ({ isOpen, onClose, onSelectInjury = null }) => {
                         className="btn-primary" 
                         style={{ fontSize: '0.8rem', padding: '0.4rem 1rem' }}
                       >
-                        Select Diagnosis
+                        Select Code
                       </button>
                     )}
                   </div>
-
-                  <div className="flex gap-4 mt-4 text-xs" style={{ background: '#f1f5f9', padding: '0.6rem 1rem', borderRadius: 'var(--radius-sm)' }}>
-                    <div><strong>ICD-10:</strong> {activeInjury.icd_codes['ICD-10']}</div>
-                    <div><strong>ICD-11:</strong> {activeInjury.icd_codes['ICD-11']}</div>
-                    <div><strong>Synonyms:</strong> {activeInjury.synonyms.join(', ')}</div>
-                  </div>
                 </div>
 
-                {/* Details Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Mechanisms & Sports */}
-                  <div className="glass-card" style={{ padding: '1rem' }}>
-                    <h4 className="font-bold text-sm mb-2 text-primary flex items-center gap-2">
-                      <Activity size={16} /> Mechanisms & Typical Sports
-                    </h4>
-                    <p className="text-xs text-muted mb-2"><strong>Mechanisms:</strong> {activeInjury.mechanism.join(', ')}</p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {activeInjury.sport_examples.map(s => (
-                        <span key={s} style={{ background: 'rgba(249, 115, 22, 0.1)', color: 'var(--primary)', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                          {s}
-                        </span>
-                      ))}
+                {/* Stage-Gated Recovery Phases */}
+                <div className="flex flex-col gap-3">
+                  <h4 className="font-bold text-sm text-primary flex items-center gap-2">
+                    <Award size={16} /> Stage-Gated Clinical Recovery Phases & Clearance Criteria
+                  </h4>
+                  {activeInjury.phases.map(ph => (
+                    <div key={ph.phaseNumber} style={{ background: '#ffffff', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-bold text-sm text-dark">Phase {ph.phaseNumber}: {ph.phaseName}</span>
+                        <span className="text-xs text-muted font-semibold">{ph.weeks}</span>
+                      </div>
+                      <p className="text-xs text-muted mb-2"><strong>Primary Goal:</strong> {ph.goals}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs" style={{ background: '#f8fafc', padding: '0.6rem', borderRadius: '4px' }}>
+                        <div>
+                          <strong className="text-success">Clearance Criteria:</strong>
+                          <ul className="list-disc pl-4 text-muted mt-1">
+                            {Object.entries(ph.clearanceCriteria).map(([k, v]) => (
+                              <li key={k}><strong>{k}:</strong> {v}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <strong className="text-danger">Kinematic Risk Thresholds:</strong>
+                          <ul className="list-disc pl-4 text-muted mt-1">
+                            {Object.entries(ph.riskThresholds).map(([k, v]) => (
+                              <li key={k}><strong>{k}:</strong> {v}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-
-                  {/* Signs & Symptoms */}
-                  <div className="glass-card" style={{ padding: '1rem' }}>
-                    <h4 className="font-bold text-sm mb-2 text-primary flex items-center gap-2">
-                      <Stethoscope size={16} /> Signs & Clinical Symptoms
-                    </h4>
-                    <ul className="text-xs text-muted list-disc pl-4 space-y-1">
-                      {activeInjury.signs_symptoms.map(ss => (
-                        <li key={ss}>{ss}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Diagnostics & Severity */}
-                  <div className="glass-card" style={{ padding: '1rem' }}>
-                    <h4 className="font-bold text-sm mb-2 text-primary flex items-center gap-2">
-                      <AlertCircle size={16} /> Diagnostics & Severity Grading
-                    </h4>
-                    <p className="text-xs text-muted mb-2"><strong>Tests:</strong> {activeInjury.diagnostic_tests.join(', ')}</p>
-                    <p className="text-xs text-muted"><strong>Grading:</strong> {activeInjury.severity_grades.join(' / ')}</p>
-                  </div>
-
-                  {/* Treatment & RTP Criteria */}
-                  <div className="glass-card" style={{ padding: '1rem' }}>
-                    <h4 className="font-bold text-sm mb-2 text-primary flex items-center gap-2">
-                      <Award size={16} /> Treatment & Return-to-Play
-                    </h4>
-                    <p className="text-xs text-muted mb-2">
-                      <strong>Rehab Timeline:</strong> {activeInjury.rehabilitation_timeline_weeks[0]}-{activeInjury.rehabilitation_timeline_weeks[1]} Weeks
-                    </p>
-                    <p className="text-xs text-muted mb-2"><strong>Standard Treatment:</strong> {activeInjury.standard_treatment.join('; ')}</p>
-                    <p className="text-xs text-muted"><strong>RTP Criteria:</strong> {activeInjury.return_to_play_criteria.join('; ')}</p>
-                  </div>
-                </div>
-
-                {/* Complications & Prevention */}
-                <div style={{ background: '#ffffff', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <strong className="text-danger">Complications:</strong>
-                      <p className="text-muted mt-1">{activeInjury.complications.join(', ')}</p>
-                    </div>
-                    <div>
-                      <strong className="text-success">Evidence-Based Prevention:</strong>
-                      <p className="text-muted mt-1">{activeInjury.preventive_measures.join(', ')}</p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             ) : null}

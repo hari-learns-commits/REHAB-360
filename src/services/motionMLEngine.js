@@ -1,15 +1,92 @@
 /**
  * Rehab360 Motion ML Engine
- * Client-side statistical ML for biomechanical movement analysis.
- * Follows ml-best-practices: time-series pattern, anomaly detection, regression scoring.
+ * Client-side statistical ML & 3D Kinematics for biomechanical movement analysis.
+ * Implements Google MediaPipe 3D landmark vector kinematics, EMA smoothing (alpha=0.35),
+ * Dynamic Knee Valgus Deviation Ratio, and Limb Symmetry Index (LSI).
  */
+
+// ─── 3D VECTOR KINEMATICS & CLAMPED DOT-PRODUCT MATH ─────────────────────────
+
+/**
+ * Calculates 3D interior angle formed by three contiguous anatomical landmarks:
+ * P1 (proximal), P2 (vertex joint), P3 (distal).
+ * Uses dot product clamped to [-1.0, 1.0] to eliminate floating-point NaN errors near 0° or 180°.
+ */
+export const calculate3DAngle = (p1, p2, p3) => {
+  if (!p1 || !p2 || !p3) return 180;
+
+  const u = {
+    x: p1.x - p2.x,
+    y: p1.y - p2.y,
+    z: (p1.z || 0) - (p2.z || 0)
+  };
+  const v = {
+    x: p3.x - p2.x,
+    y: p3.y - p2.y,
+    z: (p3.z || 0) - (p2.z || 0)
+  };
+
+  const dot = u.x * v.x + u.y * v.y + u.z * v.z;
+  const magU = Math.sqrt(u.x * u.x + u.y * u.y + u.z * u.z);
+  const magV = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+
+  if (magU === 0 || magV === 0) return 180;
+
+  const cosTheta = Math.max(-1.0, Math.min(1.0, dot / (magU * magV)));
+  const angleRad = Math.acos(cosTheta);
+  return (angleRad * 180) / Math.PI;
+};
+
+/**
+ * Exponential Moving Average (EMA) Low-Pass Filter
+ * Optimally tuned at alpha = 0.35 for 30 Hz web camera video streams.
+ * Eliminates high-frequency landmark jitter while preserving true peak ROM depth.
+ */
+export const exponentialMovingAverage = (currentValue, previousEMA, alpha = 0.35) => {
+  if (previousEMA === null || previousEMA === undefined) return currentValue;
+  return alpha * currentValue + (1 - alpha) * previousEMA;
+};
+
+/**
+ * Instantaneous Angular Velocity Computation (°/s)
+ * First-order central difference across consecutive timestamps (in seconds).
+ */
+export const calculateAngularVelocity = (angleCurrent, anglePrevious, timeDeltaSec) => {
+  if (!timeDeltaSec || timeDeltaSec <= 0) return 0;
+  const omega = Math.abs(angleCurrent - anglePrevious) / timeDeltaSec;
+  return Number(omega.toFixed(2));
+};
+
+/**
+ * Frontal Plane Dynamic Knee Valgus Ratio Index (VR_knee)
+ * Measures medial deviation of patella (P_knee) relative to functional mechanical axis (P_hip to P_ankle).
+ * VR_knee = (x_knee - M_x) / (|x_hip - x_ankle| + epsilon), where M_x = (x_hip + x_ankle) / 2
+ */
+export const calculateDynamicValgusRatio = (hip, knee, ankle, epsilon = 0.0001) => {
+  if (!hip || !knee || !ankle) return 0;
+
+  const mx = (hip.x + ankle.x) / 2;
+  const coronalWidth = Math.abs(hip.x - ankle.x) + epsilon;
+  const medialExcursion = knee.x - mx;
+
+  // Normalized percentage deviation
+  const valgusRatio = (medialExcursion / coronalWidth) * 100;
+  return Number(valgusRatio.toFixed(2));
+};
+
+/**
+ * Limb Symmetry Index (LSI %)
+ * LSI = (Metric_Involved / Metric_Uninvolved) * 100%
+ * Clinical clearance benchmark requires LSI >= 90%.
+ */
+export const calculateLimbSymmetryIndex = (involvedMetric, uninvolvedMetric) => {
+  if (!uninvolvedMetric || uninvolvedMetric === 0) return 100;
+  const lsi = (involvedMetric / uninvolvedMetric) * 100;
+  return Number(Math.min(120, Math.max(0, lsi)).toFixed(1));
+};
 
 // ─── TIME-SERIES ANALYSIS ────────────────────────────────────────────────────
 
-/**
- * Compute rolling moving average for smoothing noisy sensor data.
- * Used for ROM trend smoothing to reduce frame-by-frame noise.
- */
 export const rollingMean = (arr, window = 5) => {
   if (!arr || arr.length === 0) return [];
   return arr.map((_, i) => {
@@ -19,10 +96,6 @@ export const rollingMean = (arr, window = 5) => {
   });
 };
 
-/**
- * Compute standard deviation of an array (population std).
- * Used for variability and consistency scoring.
- */
 export const stdDev = (arr) => {
   if (!arr || arr.length === 0) return 0;
   const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -30,10 +103,6 @@ export const stdDev = (arr) => {
   return Math.sqrt(squareDiffs.reduce((a, b) => a + b, 0) / arr.length);
 };
 
-/**
- * Pearson correlation coefficient between two arrays.
- * Used to detect bilateral symmetry trends over time.
- */
 export const pearsonCorr = (a, b) => {
   if (!a || !b || a.length !== b.length || a.length === 0) return 0;
   const n = a.length;
@@ -46,11 +115,6 @@ export const pearsonCorr = (a, b) => {
   return num / (denA * denB);
 };
 
-/**
- * Simple linear regression slope (least squares).
- * Used to detect fatigue trends: if ROM decreases linearly over reps → fatigue.
- * @returns { slope, intercept, r2 }
- */
 export const linearRegression = (yArr) => {
   const n = yArr.length;
   if (n < 2) return { slope: 0, intercept: yArr[0] || 0, r2: 0 };
@@ -70,11 +134,6 @@ export const linearRegression = (yArr) => {
 
 // ─── ANOMALY DETECTION (Z-SCORE METHOD) ──────────────────────────────────────
 
-/**
- * IQR-based anomaly detection on a metric time-series.
- * Flags frames where the value is beyond 1.5x IQR from Q1/Q3.
- * @returns { anomalies: Array<{index, value, reason}>, clean: Array<number> }
- */
 export const detectAnomalies = (arr, metricName = 'metric', threshold = 2.0) => {
   if (!arr || arr.length < 5) return { anomalies: [], clean: arr || [] };
   const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -93,44 +152,32 @@ export const detectAnomalies = (arr, metricName = 'metric', threshold = 2.0) => 
   return { anomalies, clean, mean: mean.toFixed(2), sd: sd.toFixed(2) };
 };
 
-// ─── REP QUALITY CLASSIFIER ──────────────────────────────────────────────────
+// ─── REP QUALITY & FATIGUE CLASSIFIER ────────────────────────────────────────
 
-/**
- * Classifies each rep based on:
- * - ROM depth achieved (should reach < 120° for full squat)
- * - Valgus peak during descent
- * - Tempo consistency (time at peak flex)
- * 
- * @returns { repScores: Array<{repNum, romScore, valgusScore, score, label}>, avgScore }
- */
 export const classifyRepQuality = (repData) => {
   if (!repData || repData.length === 0) {
     return { repScores: [], avgScore: 0 };
   }
 
   const repScores = repData.map((rep, i) => {
-    // ROM scoring: ideal < 110°, good < 120°, poor >= 120°
     let romScore = 100;
     if (rep.peakRom >= 120) romScore = 60;
     else if (rep.peakRom >= 110) romScore = 80;
     else romScore = 100;
 
-    // Valgus scoring: < 2° excellent, < 4° good, >= 4° poor
     let valgusScore = 100;
     if (rep.peakValgus >= 4) valgusScore = 55;
     else if (rep.peakValgus >= 2) valgusScore = 80;
     else valgusScore = 100;
 
-    // Symmetry scoring
     const symScore = Math.min(100, rep.avgSymmetry || 90);
-
     const score = Math.round(romScore * 0.4 + valgusScore * 0.35 + symScore * 0.25);
 
     let label = 'Excellent';
     if (score < 70) label = 'Poor Form';
     else if (score < 82) label = 'Needs Work';
     else if (score < 92) label = 'Good';
-    
+
     return { repNum: i + 1, romScore, valgusScore, symScore, score, label, peakRom: rep.peakRom, peakValgus: rep.peakValgus };
   });
 
@@ -141,16 +188,6 @@ export const classifyRepQuality = (repData) => {
   return { repScores, avgScore };
 };
 
-// ─── FATIGUE DETECTION ────────────────────────────────────────────────────────
-
-/**
- * Detects fatigue based on:
- * 1. Negative slope in ROM over reps (ROM depth decreasing = fatigue)
- * 2. Increasing valgus over reps (collapsing under load)
- * 3. Decreasing symmetry over reps
- * 
- * @returns { fatigueScore: 0–100, fatigueLabel, indicators: string[] }
- */
 export const detectFatigue = (repRoms, repValgus, repSymmetry) => {
   if (!repRoms || repRoms.length < 3) {
     return { fatigueScore: 0, fatigueLabel: 'Insufficient Data', indicators: [] };
@@ -163,25 +200,18 @@ export const detectFatigue = (repRoms, repValgus, repSymmetry) => {
   let fatigueScore = 0;
   const indicators = [];
 
-  // ROM decreasing (positive slope means deeper = better; negative slope = fatigue)
   if (romRegression.slope > 0.5) {
     fatigueScore += 30;
     indicators.push(`ROM depth declining (+${romRegression.slope.toFixed(1)}°/rep) — muscles tiring`);
   }
-
-  // Valgus increasing (bad)
   if (valgusRegression.slope > 0.1) {
     fatigueScore += 35;
     indicators.push(`Knee valgus worsening (+${valgusRegression.slope.toFixed(2)}°/rep) — hip abductor fatigue`);
   }
-
-  // Symmetry decreasing (bad)
   if (symRegression.slope < -0.5) {
     fatigueScore += 25;
     indicators.push(`Bilateral symmetry dropping (${symRegression.slope.toFixed(1)}%/rep) — compensatory loading`);
   }
-
-  // High valgus variability
   if (repValgus && stdDev(repValgus) > 1.5) {
     fatigueScore += 10;
     indicators.push(`High valgus variability (σ=${stdDev(repValgus).toFixed(1)}°) — inconsistent motor control`);
@@ -189,52 +219,36 @@ export const detectFatigue = (repRoms, repValgus, repSymmetry) => {
 
   fatigueScore = Math.min(100, fatigueScore);
 
-  let fatigueLabel;
-  if (fatigueScore === 0) fatigueLabel = 'No Fatigue Detected';
-  else if (fatigueScore <= 20) fatigueLabel = 'Minimal Fatigue';
-  else if (fatigueScore <= 45) fatigueLabel = 'Moderate Fatigue';
-  else if (fatigueScore <= 70) fatigueLabel = 'High Fatigue — Consider Rest';
-  else fatigueLabel = 'Severe Fatigue — Stop Session';
+  let fatigueLabel = 'No Fatigue Detected';
+  if (fatigueScore > 70) fatigueLabel = 'Severe Fatigue — Stop Session';
+  else if (fatigueScore > 45) fatigueLabel = 'High Fatigue — Consider Rest';
+  else if (fatigueScore > 20) fatigueLabel = 'Moderate Fatigue';
+  else if (fatigueScore > 0) fatigueLabel = 'Minimal Fatigue';
 
   return { fatigueScore, fatigueLabel, indicators, romSlope: romRegression.slope, valgusSlope: valgusRegression.slope };
 };
 
-// ─── SESSION SUMMARY ANALYSIS ────────────────────────────────────────────────
-
 /**
- * Full session analysis pipeline.
- * Input: sessionFrames — array of { timestamp, rom, valgus, symmetry, isRecording }
- * Input: repData — array of { peakRom, peakValgus, avgSymmetry }
- * 
- * @returns Comprehensive ML analysis report
+ * Full Session Analysis Pipeline
  */
-export const analyzeSession = (sessionFrames, repData) => {
-  if (!sessionFrames || sessionFrames.length === 0) {
-    return null;
-  }
+export const analyzeSession = (sessionFrames, repData = []) => {
+  if (!sessionFrames || sessionFrames.length === 0) return null;
 
-  const romSeries = sessionFrames.map(f => f.rom);
-  const valgusSeries = sessionFrames.map(f => f.valgus);
-  const symSeries = sessionFrames.map(f => f.symmetry);
-  const timestamps = sessionFrames.map((f, i) => i);
+  const romSeries = sessionFrames.map(f => f.rom || 180);
+  const valgusSeries = sessionFrames.map(f => f.valgus || 0);
+  const symSeries = sessionFrames.map(f => f.symmetry || 90);
+  const timestamps = sessionFrames.map((_, i) => i);
 
-  // Smooth ROM for visualization
   const smoothedRom = rollingMean(romSeries, 8);
-
-  // Anomaly detection
   const romAnomalies = detectAnomalies(romSeries, 'ROM', 2.5);
   const valgusAnomalies = detectAnomalies(valgusSeries, 'Valgus', 2.0);
-
-  // Rep quality classification
   const { repScores, avgScore: repQualityAvg } = classifyRepQuality(repData);
 
-  // Fatigue detection
   const repRoms = repData.map(r => r.peakRom);
   const repValgus = repData.map(r => r.peakValgus);
   const repSym = repData.map(r => r.avgSymmetry);
   const fatigueReport = detectFatigue(repRoms, repValgus, repSym);
 
-  // Summary statistics
   const avgRom = romSeries.reduce((a, b) => a + b, 0) / romSeries.length;
   const minRom = Math.min(...romSeries);
   const avgValgus = valgusSeries.reduce((a, b) => a + b, 0) / valgusSeries.length;
@@ -242,26 +256,12 @@ export const analyzeSession = (sessionFrames, repData) => {
   const avgSymmetry = symSeries.reduce((a, b) => a + b, 0) / symSeries.length;
   const romConsistency = Math.max(0, 100 - stdDev(romSeries) * 3).toFixed(1);
 
-  // Overall session score (composite)
   const overallScore = Math.round(
     repQualityAvg * 0.40 +
     Math.max(0, 100 - fatigueReport.fatigueScore) * 0.25 +
     Number(romConsistency) * 0.20 +
     avgSymmetry * 0.15
   );
-
-  // Generate clinical insight text
-  const insights = generateInsightText({
-    avgRom: avgRom.toFixed(1),
-    minRom,
-    avgValgus: avgValgus.toFixed(1),
-    maxValgus: maxValgus.toFixed(1),
-    avgSymmetry: avgSymmetry.toFixed(1),
-    repQualityAvg,
-    fatigueReport,
-    repCount: repData.length,
-    anomalyCount: romAnomalies.anomalies.length + valgusAnomalies.anomalies.length
-  });
 
   return {
     romSeries,
@@ -282,108 +282,6 @@ export const analyzeSession = (sessionFrames, repData) => {
       avgSymmetry: Number(avgSymmetry.toFixed(1)),
       romConsistency: Number(romConsistency),
       overallScore,
-    },
-    insights
+    }
   };
-};
-
-// ─── INSIGHT TEXT GENERATION ─────────────────────────────────────────────────
-
-const generateInsightText = ({ avgRom, minRom, avgValgus, maxValgus, avgSymmetry, repQualityAvg, fatigueReport, repCount, anomalyCount }) => {
-  const insightCards = [];
-
-  // ROM insight
-  if (minRom < 110) {
-    insightCards.push({
-      type: 'positive',
-      title: 'Excellent ROM Depth',
-      text: `Knee flexion reached ${minRom}° — within therapeutic target range. Average ROM was ${avgRom}°.`
-    });
-  } else if (minRom < 125) {
-    insightCards.push({
-      type: 'warning',
-      title: 'ROM Approaching Target',
-      text: `Best knee flexion was ${minRom}°. Target is <120° for full therapeutic benefit. Focus on controlled eccentric loading.`
-    });
-  } else {
-    insightCards.push({
-      type: 'alert',
-      title: 'Insufficient ROM Depth',
-      text: `ROM peaked at ${minRom}°. Insufficient depth detected. Review pain, muscle tightness, or swelling. Report to physiotherapist.`
-    });
-  }
-
-  // Valgus insight
-  if (Number(maxValgus) < 2.5) {
-    insightCards.push({
-      type: 'positive',
-      title: 'Excellent Valgus Control',
-      text: `Peak knee valgus was only ${maxValgus}° — exceptional medial knee stability. Gluteus medius and VMO are functioning well.`
-    });
-  } else if (Number(maxValgus) < 4.5) {
-    insightCards.push({
-      type: 'warning',
-      title: 'Moderate Valgus Deviation',
-      text: `Valgus deviation peaked at ${maxValgus}°. Monitor for medial collapse. Add clamshell and hip abductor exercises to protocol.`
-    });
-  } else {
-    insightCards.push({
-      type: 'alert',
-      title: 'High Valgus — Risk Detected',
-      text: `Valgus reached ${maxValgus}°. Excessive medial knee collapse detected. Reduce load and notify Dr. Valli for protocol review.`
-    });
-  }
-
-  // Symmetry insight
-  if (Number(avgSymmetry) >= 92) {
-    insightCards.push({
-      type: 'positive',
-      title: 'Bilateral Symmetry Excellent',
-      text: `${avgSymmetry}% kinetic symmetry — excellent load distribution between limbs. Neuromuscular retraining progressing well.`
-    });
-  } else if (Number(avgSymmetry) >= 85) {
-    insightCards.push({
-      type: 'warning',
-      title: 'Mild Asymmetry Detected',
-      text: `${avgSymmetry}% symmetry — mild compensation pattern noted. Continue single-leg stability drills to address deficit.`
-    });
-  } else {
-    insightCards.push({
-      type: 'alert',
-      title: 'Significant Load Asymmetry',
-      text: `${avgSymmetry}% symmetry indicates significant weight-bearing avoidance. Flag for physio assessment.`
-    });
-  }
-
-  // Fatigue insight
-  if (fatigueReport.fatigueScore > 30) {
-    insightCards.push({
-      type: fatigueReport.fatigueScore > 60 ? 'alert' : 'warning',
-      title: `Fatigue: ${fatigueReport.fatigueLabel}`,
-      text: fatigueReport.indicators[0] || 'Fatigue pattern detected across session. Adequate rest before next session.'
-    });
-  }
-
-  // Quality insight
-  if (repQualityAvg >= 88) {
-    insightCards.push({
-      type: 'positive',
-      title: 'High Rep Quality Score',
-      text: `Average rep quality: ${repQualityAvg}/100 across ${repCount} reps. Form is consistent and clinical standards are met.`
-    });
-  } else if (repQualityAvg >= 72) {
-    insightCards.push({
-      type: 'warning',
-      title: 'Moderate Rep Quality',
-      text: `Average rep quality: ${repQualityAvg}/100. Some reps had form deviations. Review video proof with your physiotherapist.`
-    });
-  } else {
-    insightCards.push({
-      type: 'alert',
-      title: 'Form Issues Detected',
-      text: `Rep quality scored ${repQualityAvg}/100. Significant form deviations recorded. Session flagged for physio review before next workout.`
-    });
-  }
-
-  return insightCards;
 };
